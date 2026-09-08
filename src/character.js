@@ -168,6 +168,10 @@ export function createKnight({boss=false,player=false,phantom=false}={}) {
 // steps keep their animation. The weight eases in and out across clip changes.
 const FACING_CLIPS=/^(idle|block|left|right|block_\w+)$/;
 const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
+// The shield sits about 35 degrees to the left of the chest, so a squared torso
+// reads as facing left. While guarding the torso blades right so the shield
+// itself squares up with the enemy; the head keeps looking straight at them.
+export const GUARD_BLADE=32*Math.PI/180;
 const _up=new THREE.Vector3(0,1,0),_qa=new THREE.Quaternion(),_qb=new THREE.Quaternion(),_qc=new THREE.Quaternion();
 const _leftShoulder=new THREE.Vector3(),_rightShoulder=new THREE.Vector3(),_headDir=new THREE.Vector3();
 function yawBone(bone,yaw){
@@ -225,7 +229,7 @@ export function animateKnight(rig,state,dt,time) {
     _leftShoulder.setFromMatrixPosition(rig.leftShoulder.matrixWorld);
     _rightShoulder.setFromMatrixPosition(rig.rightShoulder.matrixWorld);
     const torso=Math.atan2(_rightShoulder.z-_leftShoulder.z,_leftShoulder.x-_rightShoulder.x);
-    yawBone(rig.spine,wrapAngle(state.angle-torso)*rig.facingWeight);rig.root.updateMatrixWorld(true);
+    yawBone(rig.spine,wrapAngle(state.angle-(state.blocking?GUARD_BLADE:0)-torso)*rig.facingWeight);rig.root.updateMatrixWorld(true);
     // Gaze: share the remaining turn between neck and head, capped to a natural range.
     _headDir.copy(rig.headForward).applyQuaternion(rig.head.getWorldQuaternion(_qa));
     const gaze=THREE.MathUtils.clamp(wrapAngle(state.angle-Math.atan2(_headDir.x,_headDir.z)),-1.2,1.2)*rig.facingWeight;
