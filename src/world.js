@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CAMP, PILLARS, clamp, angleDelta } from './game.js';
-import { createKnight, animateKnight } from './character.js';
+import { createKnight, animateKnight, createSwordProp } from './character.js';
 import { RoomEnvironment } from '../node_modules/three/examples/jsm/environments/RoomEnvironment.js';
 import { attackMotion } from './motion.js';
 import { activeBossHands } from './pontiff.js';
@@ -8,6 +8,7 @@ import { batchArchitecture } from './static-batches.js';
 import { AdaptiveResolution } from './performance.js';
 import { triplanar, loadSurfaces, loadSky } from './surfaces.js';
 import { Fire, updateFires } from './fire.js';
+import { createGrass, updateGrass } from './grass.js';
 
 let seed = 381;
 function random() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
@@ -18,7 +19,6 @@ const dark = triplanar(new THREE.MeshStandardMaterial({ color: 0x4e5a57, roughne
 const floor = triplanar(new THREE.MeshStandardMaterial({ color: 0x8d918a, roughness: 1 }), .42);
 const gold = new THREE.MeshStandardMaterial({ color: 0x9b8350, metalness: .65, roughness: .42 });
 const blackMetal = new THREE.MeshStandardMaterial({ color: 0x343e3c, metalness: .7, roughness: .44 });
-const swordMat = new THREE.MeshStandardMaterial({ color: 0xb7c5bf, metalness: .88, roughness: .25 });
 const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 function mesh(geometry, material, parent, x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(geometry, material); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
@@ -128,13 +128,12 @@ export class World {
       temp.rotation.set(random() * 3, random() * 6, random() * 3); const s = .1 + random() * .35; temp.scale.set(s * 1.8, s * .7, s); temp.updateMatrix(); rubble.setMatrixAt(i, temp.matrix);
     }
     this.scene.add(rubble);
-    const grassGeo = new THREE.ConeGeometry(.065, .5, 3);
-    const grass = new THREE.InstancedMesh(grassGeo, new THREE.MeshStandardMaterial({ color: 0x4c5840, roughness: 1 }), 1500);
-    for (let i = 0; i < 1500; i++) {
-      const x = (random() > .5 ? 1 : -1) * (8.5 + random() * 8);
-      temp.position.set(x, .1, random() * 40 - 20); temp.rotation.set((random() - .5) * .5, random() * 6.3, (random() - .5) * .4); temp.scale.set(1, .4 + random() * 1.1, 1); temp.updateMatrix(); grass.setMatrixAt(i, temp.matrix);
-    }
-    this.scene.add(grass);
+    // Dry grass gathers along the arcades and wall bases, thinning toward the court.
+    this.scene.add(createGrass(random, 1100, () => {
+      const side = random() > .5 ? 1 : -1, edge = random();
+      const x = side * (edge < .7 ? 9 + random() * 7.5 : 16.2 + random() * .9);
+      return [x, random() * 40 - 20];
+    }));
     for (const x of [-8, 8]) for (const z of [-18, 10]) this.brazier(x, z);
   }
   pillar(x, z, scale = 1) {
@@ -179,8 +178,8 @@ export class World {
   buildFire() {
     for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; const rock = mesh(new THREE.DodecahedronGeometry(.29), dark, this.scene, CAMP.x + Math.cos(a) * .72, .18, CAMP.z + Math.sin(a) * .72); rock.scale.y = .65; }
     for (let i = 0; i < 5; i++) { const log = cylinder(this.scene, dark, CAMP.x, .17 + i * .015, CAMP.z, .12, .14, 1.25, 6); log.rotation.z = Math.PI / 2; log.rotation.y = i * 2.2; }
-    const sword = new THREE.Group(); sword.position.set(CAMP.x, .1, CAMP.z); sword.rotation.z = -.18; this.scene.add(sword);
-    box(sword, swordMat, 0, .82, 0, .1, 1.65, .055); box(sword, gold, 0, 1.35, 0, .5, .08, .1); cylinder(sword, dark, 0, 1.55, 0, .05, .05, .35, 6);
+    // The paladin's sword stands planted in the embers, blade down, leaning slightly.
+    const sword = createSwordProp(1.45); sword.position.set(CAMP.x + .04, -.12, CAMP.z); sword.rotation.set(.06, .9, -.16); this.scene.add(sword);
     this.flame(CAMP.x, .3, CAMP.z, .85, { embers: 48 });
     this.campLight = new THREE.PointLight(0xff8c35, 26, 12, 2); this.campLight.position.set(CAMP.x, 1.6, CAMP.z); this.scene.add(this.campLight);
   }
@@ -245,7 +244,7 @@ export class World {
     this.syncActor('player', game.player, animationDt, menu ? elapsed : game.time, true);
     for (const [id,rig] of this.actors) if(id!=='player'&&!game.enemies.some(e=>e.id===id)){rig.root.visible=false;for(const b of rig.blades){b.trailPoints=[];if(b.trail)b.trail.visible=false;}}
     for (const e of game.enemies) this.syncActor(e.id, e, animationDt, menu ? elapsed : game.time);
-    updateFires(elapsed, this.renderer.getDrawingBufferSize(new THREE.Vector2()).y);
+    updateFires(elapsed, this.renderer.getDrawingBufferSize(new THREE.Vector2()).y); updateGrass(elapsed);
     this.campLight.intensity = 25 + Math.sin(elapsed * 11) * 3 + Math.sin(elapsed * 7) * 2;
     for (const [i, light] of this.brazierLights.entries()) light.intensity = 8 + Math.sin(elapsed * 9 + i * 1.3) * 1.2 + Math.sin(elapsed * 5.3 + i) * .8;
     for (const flag of this.flags) {

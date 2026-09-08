@@ -172,6 +172,18 @@ const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
 // reads as facing left. While guarding the torso blades right so the shield
 // itself squares up with the enemy; the head keeps looking straight at them.
 export const GUARD_BLADE=32*Math.PI/180;
+// The paladin's own textured sword, as a free mesh: the blade points down -Y
+// with the tip at the origin, so it can be planted in the ground.
+export function createSwordProp(length){
+  if(!props)throw new Error('Character assets have not loaded');
+  const geometry=props.sword.geometry.clone(),v=geometry.attributes.position,p=new THREE.Vector3(),tip=new THREE.Vector3();let farthest=0;
+  for(let i=0;i<v.count;i++){p.fromBufferAttribute(v,i);if(p.lengthSq()>farthest){farthest=p.lengthSq();tip.copy(p);}}
+  const align=new THREE.Quaternion().setFromUnitVectors(tip.clone().normalize(),new THREE.Vector3(0,-1,0));
+  geometry.applyQuaternion(align);geometry.scale(length/tip.length(),length/tip.length(),length/tip.length());geometry.translate(0,length,0);
+  geometry.computeVertexNormals();geometry.computeBoundingBox();geometry.computeBoundingSphere();
+  const material=props.sword.material.clone();material.envMapIntensity=1;material.roughness=Math.min(material.roughness,.5);
+  const mesh=new THREE.Mesh(geometry,material);mesh.castShadow=true;mesh.receiveShadow=true;return mesh;
+}
 const _up=new THREE.Vector3(0,1,0),_qa=new THREE.Quaternion(),_qb=new THREE.Quaternion(),_qc=new THREE.Quaternion();
 const _leftShoulder=new THREE.Vector3(),_rightShoulder=new THREE.Vector3(),_headDir=new THREE.Vector3();
 function yawBone(bone,yaw){
