@@ -4,6 +4,8 @@
 
 **線上試玩：** https://soulslike-96jd.onrender.com/
 
+![遊戲畫面](demo.png)
+
 ## 啟動
 
 Windows 雙擊 **start-game.cmd**，保留啟動的命令列視窗；若瀏覽器先開啟而顯示無法連線，稍等一秒後重新整理。
