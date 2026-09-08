@@ -1,0 +1,67 @@
+{
+  "provider": "Adobe Mixamo",
+  "terms": "https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html",
+  "mirror": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters",
+  "files": [
+    {
+      "path": "assets/characters/knight.glb",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/character_refined_glb/Knight_D_Pelegrini.glb"
+    },
+    {
+      "path": "assets/characters/warden.glb",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/character_refined_glb/Paladin_WProp_J_Nordstrom.glb"
+    },
+    {
+      "path": "assets/animations/idle.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Idle_4.fbx"
+    },
+    {
+      "path": "assets/animations/walk.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Walk.fbx"
+    },
+    {
+      "path": "assets/animations/run.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Run.fbx"
+    },
+    {
+      "path": "assets/animations/light.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Slash_3.fbx"
+    },
+    {
+      "path": "assets/animations/heavy.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Slash_5.fbx"
+    },
+    {
+      "path": "assets/animations/roll.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Stand_To_Roll.fbx"
+    },
+    {
+      "path": "assets/animations/block.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Block_Idle.fbx"
+    },
+    {
+      "path": "assets/animations/stagger.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Impact_3.fbx"
+    },
+    {
+      "path": "assets/animations/death.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Death.fbx"
+    },
+    {
+      "path": "assets/animations/heal.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Drinking.fbx"
+    },
+    {
+      "path": "assets/animations/backward.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Walk_2.fbx"
+    },
+    {
+      "path": "assets/animations/right.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Strafe.fbx"
+    },
+    {
+      "path": "assets/animations/left.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Strafe_2.fbx"
+    }
+  ]
+}

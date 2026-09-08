@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111615">
+  <title>灰燼之庭 · ASHFALL</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23d5a560' d='M34 3 16 34l8-3-4 18 12 12 16-19-8-23-5 18z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js"}}</script>
+</head>
+<body>
+  <canvas id="scene" aria-label="灰燼之庭 3D 遊戲畫面"></canvas>
+  <div class="vignette"></div><div class="grain"></div><div id="hurt"></div>
+  <div id="loading"><span class="sigil">♜</span><p>正在喚醒灰燼…</p></div>
+  <main id="menu" class="screen hidden">
+    <div class="edition"><span class="tiny-mark">✦</span> AN ORIGINAL SOULSLIKE <span class="line"></span> 001 / THE COURTYARD</div>
+    <section class="title-block">
+      <p class="eyebrow">THE FIRE REMEMBERS</p>
+      <h1>ASHFALL<span>灰燼之庭</span></h1>
+      <div class="title-rule"><i></i><span>◆</span><i></i></div>
+      <p class="intro">鐘聲已逝，餘火未熄。<br>踏入無人之庭，迎戰最後的守誓者。</p>
+      <button id="start" class="primary"><span>踏入灰燼</span><small>BEGIN JOURNEY</small><b>⟶</b></button>
+      <p class="menu-note">3D 第三人稱動作原型 · 建議使用鍵盤與滑鼠</p>
+    </section>
+    <div class="menu-bottom"><span>每一次倒下，都讓下一步更堅定。</span><button id="menu-help" class="text-button">操作指南 <b>↗</b></button><span class="build">CHARACTER UPDATE / v0.3</span></div>
+  </main>
+  <div id="hud" class="hidden">
+    <div class="vitals"><div class="crest">♜<span>Ⅰ</span></div><div class="bars"><div class="bar health"><i id="health-lag"></i><b id="health"></b></div><div class="bar stamina"><b id="stamina"></b></div><div class="vital-caption"><span>餘燼行者</span><span id="hp-label">100 / 100</span></div></div></div>
+    <div class="area-label"><span>廢棄聖域</span><b>灰燼之庭</b><i></i></div>
+    <div id="objective">尋找庭院深處的守誓者</div>
+    <div class="equipment"><div class="slot sword"><span>⚔</span><small>長劍 / 圓盾</small></div><div class="slot flask"><span>♜</span><b id="flasks">3</b><small><kbd>F</kbd> 餘火瓶</small></div></div>
+    <div class="soul-count"><span>✦</span><b id="souls">0</b><small>餘燼</small></div>
+    <div id="boss" class="hidden"><div class="boss-title"><span id="boss-name">灰庭守誓者</span><small id="boss-phase">THE LAST VOW</small></div><div class="bar boss-health"><i id="boss-lag"></i><b id="boss-fill"></b></div></div>
+    <div id="lock" class="hidden"></div><div id="enemy-label" class="hidden"><div><b></b></div></div>
+    <div id="prompt" class="hidden"></div><div id="toast" class="hidden"></div>
+    <div class="quick-controls"><span><kbd>W A S D</kbd> 移動</span><span><kbd>滑鼠左鍵</kbd> 攻擊</span><span><kbd>Space</kbd> 翻滾</span><span><kbd>Q</kbd> 鎖定</span><span><kbd>H</kbd> 操作</span></div>
+    <div id="banner" class="hidden"><h2></h2><p></p></div>
+  </div>
+  <section id="pause" class="overlay hidden"><div class="panel"><p class="eyebrow">A MOMENT OF RESPITE</p><h2>暫歇於灰燼</h2><p>旅途暫停。準備好再向前。</p><button id="resume" class="primary">繼續旅程 <b>⟶</b></button><button id="pause-help" class="secondary">操作指南</button><button id="sound" class="text-button">音效：開啟</button></div></section>
+  <section id="help" class="overlay hidden"><div class="panel help-panel"><p class="eyebrow">KNOW YOUR BLADE</p><h2>行者指南</h2><div class="control-grid"><span>移動</span><kbd>W A S D</kbd><span>旋轉視角</span><kbd>滑鼠 / ← →</kbd><span>輕攻擊 / 重攻擊</span><kbd>左鍵或 J / R</kbd><span>持盾防禦</span><kbd>按住右鍵或 K</kbd><span>翻滾 / 奔跑</span><kbd>Space / 按住 Shift</kbd><span>鎖定 / 解除鎖定</span><kbd>Q</kbd><span>使用餘火瓶</span><kbd>F</kbd><span>篝火休息 / 拾回餘燼</span><kbd>E</kbd><span>暫停 / 音效</span><kbd>Esc / M</kbd></div><p class="help-tip">攻擊、翻滾與格擋消耗體力。留意敵人舉劍蓄力，在揮擊時翻滾避開。篝火恢復補給，也會讓守衛重生。</p><button id="close-help" class="primary">我準備好了 <b>⟶</b></button></div></section>
+  <section id="death" class="overlay hidden"><div class="panel death-panel"><p class="eyebrow">THE EMBERS REMAIN</p><h2>你已倒下</h2><p>餘燼留在倒下之處。篝火仍為你燃燒。</p><button id="respawn" class="primary">於篝火重生 <b>⟶</b></button></div></section>
+  <section id="victory" class="overlay hidden"><div class="panel victory-panel"><p class="eyebrow">VOW FULFILLED</p><h2>誓約已盡</h2><p>守誓者終得安息。你為這座庭院帶來了黎明。</p><div class="reward">✦ <span>1,000 餘燼</span></div><button id="continue" class="primary">留在庭院 <b>⟶</b></button><button id="restart" class="secondary">重新挑戰</button></div></section>
+  <div id="error" class="overlay hidden"><div class="panel"><h2>無法啟動遊戲</h2><p id="error-message"></p></div></div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
