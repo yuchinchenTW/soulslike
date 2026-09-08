@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from '../node_modules/three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from '../node_modules/three/examples/jsm/utils/SkeletonUtils.js';
-import { MOTION } from './motion.js';
+import { MOTION, attackMotion } from './motion.js';
+import { BOSS_MOVES, bossClipTime } from './pontiff.js';
+import { addRegalia } from './regalia.js';
 
 const cache = new Map();
 const boneName = name => `mixamorig${name}`;
@@ -35,7 +37,7 @@ function prop(model, definition) {
   const m=new THREE.Mesh(definition.geometry,definition.material);m.castShadow=true;m.receiveShadow=true;g.add(m);
   const parent=model.getObjectByName(definition.parent);if(!parent)throw new Error('Equipment attachment bone missing');parent.add(g);return {group:g,mesh:m};
 }
-export function createKnight({boss=false,player=false}={}) {
+export function createKnight({boss=false,player=false,phantom=false}={}) {
   const type=boss||player?'warden':'knight', asset=cache.get(type);
   if(!asset)throw new Error('Character assets have not loaded');
   const root=new THREE.Group(), model=clone(asset.scene);root.add(model);
@@ -55,6 +57,37 @@ export function createKnight({boss=false,player=false}={}) {
   for(let i=0;i<vertices.count;i++){p.fromBufferAttribute(vertices,i);if(p.lengthSq()>farthest){farthest=p.lengthSq();bladeTip.position.copy(p);}}
   bladeHeel.position.copy(bladeTip.position).multiplyScalar(.18);
   swordJoint.add(bladeTip,bladeHeel);
+  const blades=[{tip:bladeTip,heel:bladeHeel,hand:'right',color:boss?0xff7b28:0xdde5dd,trailPoints:[]}];
+  if(boss){
+    shieldMesh.visible=false;
+    swordMesh.visible=false;
+    const swordGeometry=props.sword.geometry.clone(),glow=[];
+    const direction=bladeTip.position.clone().normalize(),length=bladeTip.position.length();
+    for(let i=0;i<vertices.count;i++){p.fromBufferAttribute(vertices,i);glow.push(THREE.MathUtils.smoothstep(p.dot(direction)/length,.25,.4));}
+    swordGeometry.setAttribute('bladeGlow',new THREE.Float32BufferAttribute(glow,1));
+    function bladeMaterial(color){
+      const m=new THREE.MeshStandardMaterial({color:0x8c8580,metalness:.75,roughness:.35,emissive:color,emissiveIntensity:1.8});
+      m.onBeforeCompile=shader=>{
+        shader.vertexShader='attribute float bladeGlow; varying float vBladeGlow;\n'+shader.vertexShader;
+        shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n vBladeGlow=bladeGlow;');
+        shader.fragmentShader='varying float vBladeGlow;\n'+shader.fragmentShader;
+        shader.fragmentShader=shader.fragmentShader.replace('#include <emissivemap_fragment>','#include <emissivemap_fragment>\n totalEmissiveRadiance *= vBladeGlow;');
+      };return m;
+    }
+    const flame=new THREE.Mesh(swordGeometry,bladeMaterial(0xff5112));swordJoint.add(flame);flame.castShadow=true;
+    const left=new THREE.Group();
+    left.position.copy(props.sword.position);left.position.x*=-1;
+    const q=props.sword.quaternion;left.quaternion.set(q.x,-q.y,-q.z,q.w);
+    model.getObjectByName(boneName('LeftHand')).add(left);
+    const magic=new THREE.Mesh(swordGeometry,bladeMaterial(0x7040ff));left.add(magic);magic.castShadow=true;
+    const tip=bladeTip.clone(),heel=bladeHeel.clone();left.add(tip,heel);
+    blades.push({tip,heel,hand:'left',color:0x9774ff,trailPoints:[]});
+    for(const [joint,color]of [[swordJoint,0xff7020],[left,0x9460ff]]){
+      const light=new THREE.PointLight(color,1.8,4,2);light.position.copy(bladeTip.position).multiplyScalar(.55);joint.add(light);
+    }
+  }
+  if(boss)addRegalia(root,model,height,bounds.min.y);
+  if(phantom)root.traverse(o=>{if(o.isMesh){o.material=o.material.clone();o.material.color.set(0x756bb1);o.material.emissive.set(0x514589);o.material.emissiveIntensity=.7;o.material.transparent=true;o.material.opacity=.38;o.material.depthWrite=false;o.castShadow=false;}});
   const mixer=new THREE.AnimationMixer(model),actions={};
   for(const [name,clip]of Object.entries(asset.clips)){const a=mixer.clipAction(clip);a.clampWhenFinished=true;a.setLoop(['idle','walk','run','block','backward','left','right'].includes(name)?THREE.LoopRepeat:THREE.LoopOnce,Infinity);actions[name]=a;}
   const tell=new THREE.Mesh(new THREE.TorusGeometry(boss?1.1:.9,.012,6,64),new THREE.MeshBasicMaterial({color:0xbc925e,transparent:true,opacity:0,depthWrite:false}));tell.rotation.x=Math.PI/2;tell.position.y=.026;root.add(tell);
@@ -62,11 +95,14 @@ export function createKnight({boss=false,player=false}={}) {
   const support=[];
   model.updateMatrixWorld(true);
   model.traverse(o=>{if(o.isSkinnedMesh&&o.geometry.attributes.position.count>1500){const indices=[],a=o.geometry.attributes.position;for(let i=0;i<a.count;i+=Math.max(1,Math.floor(a.count/350)))indices.push(i);support.push({mesh:o,indices});}});
-  return {root,model,mixer,actions,asset,type,boss,player,tell,blade:{tip:bladeTip,heel:bladeHeel},swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y};
+  return {root,model,mixer,actions,asset,type,boss,player,phantom,tell,blade:blades[0],blades,swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y};
 }
 
 function animationChoice(rig,state) {
   if(state.hp<=0)return'death';
+  if(state.action==='light')return state.attackClip||'light';
+  if(state.action==='bossAttack'||(rig.boss&&state.action==='recover'&&state.move))return BOSS_MOVES[state.move].clip;
+  if(rig.boss&&['summon','echoWait','idle','recover'].includes(state.action)&&!state.moving)return'dual';
   if(['light','heavy','roll','heal','stagger'].includes(state.action))return state.action;
   if(['windup','swing','recover'].includes(state.action))return 'heavy';
   if(state.blocking)return'block';
@@ -79,19 +115,22 @@ function animationChoice(rig,state) {
 export function animateKnight(rig,state,dt,time) {
   rig.root.position.set(state.x,0,state.z);rig.root.rotation.y=state.angle;
   const name=animationChoice(rig,state),action=rig.actions[name];
-  if(rig.current!==name || (rig.lastState!==state.action&&['light','heavy','roll','heal','stagger'].includes(name))){
+  if(rig.current!==name || rig.lastSerial!==state.actionSerial || (rig.lastState!==state.action&&['light','light2','light3','heavy','roll','heal','stagger'].includes(name))){
     const previous=rig.current&&rig.actions[rig.current];action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
     if(previous&&previous!==action)previous.crossFadeTo(action,name==='roll'?.07:.13,false);
     rig.current=name;rig.elapsed=0;if(name==='death')rig.deathElapsed=0;
   }
-  rig.lastState=state.action;rig.elapsed+=dt;
+  rig.lastState=state.action;rig.lastSerial=state.actionSerial;rig.elapsed+=dt;
   const duration=rig.asset.clips[name].duration;
   if(name==='death'){rig.deathElapsed+=dt;action.time=Math.min(duration-.001,rig.deathElapsed*1.15);}
+  else if(state.action==='bossAttack')action.time=bossClipTime(state);
+  else if(rig.boss&&state.action==='recover'&&state.move)action.time=duration-.001;
+  else if(rig.boss&&name==='dual')action.time=state.action==='summon'?.35:0;
   else if(state.action==='windup')action.time=Math.min(.45,state.timer/state.windup*.45);
   else if(state.action==='swing')action.time=Math.min(duration-.001,.45+state.timer*1.45);
   else if(state.action==='recover')action.time=Math.min(duration-.001,1.073+state.timer*.55);
   else if(name==='roll')action.time=.43+Math.min(1,state.timer/MOTION.roll.duration)*1.64;
-  else if(['light','heavy'].includes(name))action.time=Math.min(duration-.001,state.timer/MOTION[name].duration*duration);
+  else if(['light','light2','light3','heavy'].includes(name))action.time=Math.min(duration-.001,state.timer/attackMotion(state).duration*duration);
   else if(name==='heal')action.time=2.15+Math.min(1,state.timer/1.3)*2.35;
   else if(name==='stagger')action.time=Math.min(duration-.001,state.timer/.48*duration);
   else {const speed=name==='walk'?Math.max(.6,state.moving/1.8):name==='run'?Math.max(.8,state.moving/4.4):1;action.time=(rig.elapsed*speed)%duration;}
@@ -105,8 +144,9 @@ export function animateKnight(rig,state,dt,time) {
     for(const s of rig.support){s.mesh.skeleton.update();for(const i of s.indices){p.fromBufferAttribute(s.mesh.geometry.attributes.position,i);s.mesh.applyBoneTransform(i,p);s.mesh.localToWorld(p);floor=Math.min(floor,p.y);}}
     if(name!=='roll'||floor<.006)rig.model.position.y+=(.006-floor)/rig.root.scale.x;
   }
-  rig.tell.visible=state.action==='windup'&&state.hp>0;
-  if(rig.tell.visible)rig.tell.material.opacity=.1+Math.min(1,state.timer/state.windup)*.3;
-  rig.root.visible=state.hp>0||rig.player||rig.deathElapsed<3;
+  const windup=state.action==='bossAttack'&&state.timer<BOSS_MOVES[state.move].hits[0].at;
+  rig.tell.visible=(state.action==='windup'||windup||state.action==='summon')&&state.hp>0;
+  if(rig.tell.visible){rig.tell.material.color.set(state.action==='summon'?0x9974ee:0xbc925e);rig.tell.scale.setScalar(state.action==='summon'?3.6/(1.1*rig.root.scale.x):1);rig.tell.material.opacity=.12+Math.min(1,state.timer/(state.windup||1.2))*.3;}
+  rig.root.visible=state.hp>0||rig.player||rig.deathElapsed<(rig.phantom?.55:3);
   rig.root.updateMatrixWorld(true);
 }

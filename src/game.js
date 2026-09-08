@@ -1,5 +1,6 @@
 // Combat simulation stays independent of rendering so damage and timing can be checked.
-import { MOTION, travel } from './motion.js';
+import { MOTION, LIGHT_COMBO, attackMotion, travel } from './motion.js';
+import { updatePontiff } from './pontiff.js';
 export const CAMP = { x: -4, z: 14 };
 export const PILLARS = [-13, 13].flatMap(x => [-15, -5, 5, 15].map(z => ({ x, z, r: 1.05 })));
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -24,7 +25,12 @@ export class Game {
   }
   emit(type, data = {}) { this.events.push({ type, ...data }); }
   start() { this.state = 'playing'; this.emit('banner', { title: '灰燼之庭', subtitle: 'THE FORSAKEN COURTYARD' }); }
-  setAction(action, duration) { Object.assign(this.player, { action, duration, timer: 0, hit: false }); }
+  setAction(action, duration) {
+    const p = this.player;
+    if (action === 'idle' && p.action === 'light') p.comboUntil = this.time + .65;
+    if (['heavy','roll','heal','stagger','dead'].includes(action)) { p.comboUntil = 0; p.comboIndex = -1; }
+    Object.assign(p, { action, duration, timer: 0, hit: false, actionSerial: (p.actionSerial || 0) + 1 });
+  }
   canAct() { return this.state === 'playing' && this.player.action === 'idle'; }
   spend(amount) {
     if (this.player.stamina < amount) { this.emit('toast', { text: '體力不足，稍作喘息' }); return false; }
@@ -43,14 +49,17 @@ export class Game {
       return;
     }
     if (!this.canAct()) {
-      if (['light','heavy','roll'].includes(action) && ['light','heavy','roll'].includes(p.action) && p.duration - p.timer <= .16) this.buffered = {action,direction,until:this.time+.22};
+      if (['light','heavy','roll'].includes(action) && ['light','heavy','roll'].includes(p.action) && p.duration - p.timer <= .38) this.buffered = {action,direction,until:this.time + p.duration - p.timer + .1};
       return;
     }
     if (action === 'light' || action === 'heavy') {
-      if (!this.spend(action === 'light' ? 23 : 37)) return;
+      const index = action === 'light' && this.time <= (p.comboUntil || -1) ? ((p.comboIndex ?? -1) + 1) % LIGHT_COMBO.length : 0;
+      const clip = action === 'light' ? LIGHT_COMBO[index] : 'heavy';
+      if (!this.spend(action === 'light' ? MOTION[clip].stamina : 37)) return;
+      p.attackClip = clip; p.comboIndex = index;
       const target = this.target;
       if (target) p.angle = angleTo(p, target);
-      this.setAction(action, MOTION[action].duration);
+      this.setAction(action, MOTION[clip].duration);
       p.blocking = false; p.swingSound = false;
     } else if (action === 'roll') {
       if (!this.spend(28)) return;
@@ -95,8 +104,8 @@ export class Game {
       if (p.timer >= .57 && previousTime < .57) this.emit('land', { x: p.x, z: p.z });
     }
     if (p.action === 'light' || p.action === 'heavy') {
-      const heavy = p.action === 'heavy', impact = MOTION[p.action].impact;
-      const step = travel(p.action, p.timer) - travel(p.action, previousTime);
+      const heavy = p.action === 'heavy', motion = attackMotion(p), impact = motion.impact;
+      const step = travel(p.action, p.timer, motion) - travel(p.action, previousTime, motion);
       this.move(p, Math.sin(p.angle) * step, Math.cos(p.angle) * step);
       if (!p.swingSound && p.timer >= impact - .06) { p.swingSound = true; this.emit('swing', { heavy }); }
       if (p.timer >= impact && !p.hit) { p.hit = true; this.playerStrike(heavy); }
@@ -120,7 +129,7 @@ export class Game {
       if (this.target) p.angle += angleDelta(angleTo(p, this.target), p.angle) * Math.min(1, dt * 14);
     }
     if (p.regenDelay === 0 && (p.action === 'idle' || p.action === 'stagger')) p.stamina = Math.min(100, p.stamina + dt * (p.blocking ? 13 : 31));
-    for (const e of this.enemies) this.updateEnemy(e, dt);
+    for (const e of [...this.enemies]) { if(this.state !== 'playing') break; this.updateEnemy(e, dt); }
     if (this.state !== 'playing') return;
     // Soft separation avoids standing inside an enemy without making dodge movement sticky.
     if (p.action !== 'roll') for (const e of this.enemies) {
@@ -134,26 +143,24 @@ export class Game {
     this.emit('slash', { x: p.x, z: p.z, angle: p.angle, heavy });
     for (const e of this.enemies) {
       if (e.hp <= 0 || distance(p, e) > (heavy ? 2.1 : 1.9) + e.radius * .3 || Math.abs(angleDelta(angleTo(p, e), p.angle)) > (heavy ? 1.2 : 1.05)) continue;
-      const damage = heavy ? 55 : 30;
+      const damage = heavy ? 55 : attackMotion(p)?.damage || 30;
       e.hp = Math.max(0, e.hp - damage); e.flash = .18;
       this.emit('hit', { x: e.x, z: e.z, boss: e.boss });
-      if (!e.boss && e.hp > 0) { e.action = 'stagger'; e.timer = 0; }
+      if (!e.boss && !e.phantom && e.hp > 0) { e.action = 'stagger'; e.timer = 0; }
       if (e.hp === 0) {
-        e.action = 'dead'; e.deathTime = this.time; this.souls += e.boss ? 1000 : 100;
+        e.action = 'dead'; e.deathTime = this.time; this.souls += e.phantom ? 0 : e.boss ? 1000 : 100;
         if (this.locked === e.id) this.locked = null;
         this.emit('kill', { x: e.x, z: e.z, boss: e.boss });
-        if (e.boss) { this.won = true; this.bossActive = false; this.emit('victory'); }
+        if (e.boss) { this.dismissPhantom(); this.won = true; this.bossActive = false; this.emit('victory'); }
       }
     }
   }
   updateEnemy(e, dt) {
     e.flash = Math.max(0, e.flash - dt); e.moving = 0;
     if (e.hp <= 0) return;
+    if (e.boss || e.phantom) { updatePontiff(this, e, dt); return; }
     e.timer += dt; e.cooldown -= dt;
     const p = this.player, d = distance(e, p);
-    if (e.boss && e.hp <= e.maxHp * .5 && e.phase === 1) {
-      e.phase = 2; this.emit('toast', { text: '誓火燃起——小心連續揮擊' }); this.emit('rage');
-    }
     if (e.action === 'stagger') { if (e.timer > .55) { e.action = 'idle'; e.cooldown = .65; } return; }
     if (e.action === 'windup') {
       if (e.timer < e.windup * .52) e.angle += angleDelta(angleTo(e, p), e.angle) * Math.min(1, dt * 7);
@@ -161,29 +168,25 @@ export class Game {
       return;
     }
     if (e.action === 'swing') {
-      if (e.timer < .2) this.move(e, Math.sin(e.angle) * dt * (e.boss ? 4.2 : 2.7), Math.cos(e.angle) * dt * (e.boss ? 4.2 : 2.7));
+      if (e.timer < .2) this.move(e, Math.sin(e.angle) * dt * 2.7, Math.cos(e.angle) * dt * 2.7);
       if (e.timer >= .13 && !e.hit) {
         e.hit = true;
         this.emit('enemySlash', { x: e.x, z: e.z, angle: e.angle, boss: e.boss });
-        if (distance(e, p) < (e.boss ? 3.5 : 2.35) && Math.abs(angleDelta(angleTo(e, p), e.angle)) < (e.boss ? 1.4 : 1.1)) this.hurt(e.boss ? (e.phase === 2 ? 33 : 29) : 19, e);
+        if (distance(e, p) < 2.35 && Math.abs(angleDelta(angleTo(e, p), e.angle)) < 1.1) this.hurt(19, e);
       }
-      if (e.timer > .43) {
-        if (e.boss && e.phase === 2 && !e.combo) { e.combo = true; e.action = 'windup'; e.windup = .5; e.timer = 0; }
-        else { e.action = 'recover'; e.timer = 0; }
-      }
+      if (e.timer > .43) { e.action = 'recover'; e.timer = 0; }
       return;
     }
-    if (e.action === 'recover') { if (e.timer > (e.boss ? 1.1 : .9)) { e.action = 'idle'; e.cooldown = .3; } return; }
-    const active = d < (e.boss ? 12 : 9) || e.hp < e.maxHp || (e.boss && this.bossActive);
+    if (e.action === 'recover') { if (e.timer > .9) { e.action = 'idle'; e.cooldown = .3; } return; }
+    const active = d < 9 || e.hp < e.maxHp;
     if (!active) return;
-    if (e.boss && !this.bossActive) { this.bossActive = true; this.emit('bossAwake'); }
     e.angle += angleDelta(angleTo(e, p), e.angle) * Math.min(1, dt * 5);
-    if (d > (e.boss ? 2.8 : 1.85)) {
-      e.moving = e.boss ? (e.phase === 2 ? 2.8 : 2.05) : 2.2;
+    if (d > 1.85) {
+      e.moving = 2.2;
       this.move(e, Math.sin(e.angle) * e.moving * dt, Math.cos(e.angle) * e.moving * dt);
     } else if (e.cooldown <= 0) {
-      e.action = 'windup'; e.timer = 0; e.combo = false; e.attackCount++;
-      e.windup = e.boss ? (e.phase === 2 ? .72 : 1.05) : .85;
+      e.action = 'windup'; e.timer = 0; e.attackCount++;
+      e.windup = .85;
       this.emit('windup', { x: e.x, z: e.z, boss: e.boss });
     }
   }
@@ -202,12 +205,16 @@ export class Game {
     if (p.hp === 0) {
       if (this.souls > 0) this.drop = { x: p.x, z: p.z, amount: this.souls };
       else this.drop = null;
-      this.souls = 0; this.locked = null; this.state = 'dead'; this.setAction('dead', 9); this.emit('death');
+      this.dismissPhantom(); this.buffered = null; this.souls = 0; this.locked = null; this.state = 'dead'; this.setAction('dead', 9); this.emit('death');
     }
     return true;
   }
+  dismissPhantom() {
+    for (const e of this.enemies) if (e.phantom) { e.hp = 0; e.action = 'dead'; e.timer = 0; }
+    if (this.locked === 'echo') this.locked = null;
+  }
   respawn(fromDeath = true) {
-    Object.assign(this.player, { x: -1, z: 13, angle: Math.PI, hp: 100, stamina: 100, flasks: 3, blocking: false, invuln: 0, regenDelay: 0, moving: 0 });
+    Object.assign(this.player, { x: -1, z: 13, angle: Math.PI, hp: 100, stamina: 100, flasks: 3, blocking: false, invuln: 0, regenDelay: 0, moving: 0, comboIndex: -1, comboUntil: 0, attackClip: 'light' });
     this.setAction('idle', 0); this.resetEnemies(); this.locked = null; this.bossActive = false; this.buffered = null; this.state = 'playing';
     if (fromDeath) this.emit('toast', { text: '餘火重燃' });
   }

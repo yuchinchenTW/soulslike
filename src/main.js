@@ -77,8 +77,9 @@ function updateHUD() {
   const boss = game.enemies.find(e => e.boss);
   show('boss', game.bossActive && boss.hp > 0);
   $('boss-fill').style.transform = $('boss-lag').style.transform = `scaleX(${boss.hp / boss.maxHp})`;
-  $('boss-phase').textContent = boss.phase === 2 ? 'THE BURNING VOW' : 'THE LAST VOW';
-  $('objective').textContent = game.won ? '誓約已盡 · 庭院重歸寂靜' : game.bossActive ? '擊敗灰庭守誓者' : '尋找庭院深處的守誓者';
+  $('boss-phase').textContent = boss.phase === 2 ? 'SHADOW COMMUNION' : 'FIRE & JUDGMENT';
+  $('objective').textContent = game.won ? '誓約已盡 · 庭院重歸寂靜' : game.bossActive ? '擊敗雙誓教長' : '尋找庭院深處的雙誓教長';
+  $('combo').textContent = p.action === 'light' ? ['Ⅰ · 斜斬','Ⅱ · 反向斬','Ⅲ · 蓄力終結'][p.comboIndex || 0] : '';
   const target = game.target;
   if (target) {
     const pos = world.project(target, target.boss ? 2.4 : 1.55);
@@ -99,7 +100,7 @@ function handleEvents() {
     if (e.type === 'banner') banner(e.title, e.subtitle);
     if (e.type === 'hurt') hurtUntil = elapsed + .23;
     if (e.type === 'hit') hitStop = e.boss ? .055 : .04;
-    if (e.type === 'bossAwake') toast('灰庭守誓者已甦醒', 3);
+    if (e.type === 'bossAwake') toast('雙誓教長已甦醒', 3);
     if (e.type === 'death') { clearInput(); show('death'); document.exitPointerLock?.(); }
     if (e.type === 'victory' && game.state !== 'dead') { game.state = 'victory'; clearInput(); show('victory'); document.exitPointerLock?.(); }
   }

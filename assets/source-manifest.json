@@ -62,6 +62,18 @@
     {
       "path": "assets/animations/left.fbx",
       "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Strafe_2.fbx"
+    },
+    {
+      "path": "assets/animations/light2.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Stable_Sword_Outward_Slash.fbx"
+    },
+    {
+      "path": "assets/animations/light3.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Sword_And_Shield_Slash_4.fbx"
+    },
+    {
+      "path": "assets/animations/dual.fbx",
+      "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Dual_Weapon_Combo.fbx"
     }
   ]
 }

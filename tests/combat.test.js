@@ -58,11 +58,12 @@ test('rest resets ordinary enemies while defeated boss remains defeated', () => 
   g.trigger('interact'); assert.equal(g.player.hp, 100); assert.equal(g.enemies[0].hp, 90); assert.equal(g.enemies[2].hp, 0);
 });
 
-test('boss enters second phase and chains a second telegraphed attack', () => {
-  const g = play(), boss = g.enemies[2]; boss.hp = 300; boss.action = 'swing'; boss.timer = .42; boss.hit = true; boss.combo = false;
-  g.update(.03); assert.equal(boss.phase, 2); assert.equal(boss.action, 'windup'); assert.equal(boss.combo, true);
-  boss.action = 'swing'; boss.timer = .42; boss.hit = true;
-  g.update(.03); assert.equal(boss.action, 'recover');
+test('boss phase change has a telegraphed burst then summons an attackable echo', () => {
+  const g=play(),boss=g.enemies[2];boss.hp=300;
+  g.update(.01);assert.equal(boss.phase,2);assert.equal(boss.action,'summon');
+  tick(g,1);assert.equal(g.enemies.length,3);assert.equal(g.events.filter(e=>e.type==='burst').length,0);
+  tick(g,.3);assert.equal(g.events.filter(e=>e.type==='burst').length,1);
+  tick(g,.85);const echo=g.enemies.find(e=>e.phantom);assert.equal(echo.hp,100);assert.equal(echo.boss,false);assert.equal(boss.action,'recover');
 });
 
 test('boss defeat grants the reward once and ends its attacks', () => {

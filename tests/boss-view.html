@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>body{margin:0;background:#12151a}canvas{display:block}</style><script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js"}}</script></head><body><canvas></canvas><script type="module">
+import { Game } from '../src/game.js';
+import { World } from '../src/world.js';
+import { loadCharacterAssets } from '../src/character.js';
+await loadCharacterAssets();
+const game=new Game(),world=new World(document.querySelector('canvas'));game.start();world.resize();
+game.enemies[0].hp=game.enemies[1].hp=0;
+Object.assign(game.player,{x:0,z:-7,angle:Math.PI,invuln:100});
+world.yaw=0;world.cameraDistance=8;world.pitch=.28;
+window.bossReview={
+  phaseTwo(){game.enemies[2].hp=300;},
+  step(seconds){for(let t=0;t<seconds;t+=1/60){game.update(1/60);for(const e of game.events.splice(0))world.addEffect(e.type,e);world.update(game,1/60,game.time);}return this.snapshot();},
+  snapshot(){return {actors:game.enemies.map(e=>({id:e.id,action:e.action,move:e.move,timer:e.timer,phase:e.phase,hp:e.hp})),rigs:[...world.actors].map(([id,r])=>({id,visible:r.root.visible,blades:r.blades.length,clip:r.current,opacity:r.model.getObjectByName('Paladin_J_Nordstrom_Sword')?.material.opacity})),calls:world.renderer.info.render.calls};},
+  rest(){game.respawn();world.update(game,1/60,game.time);return this.snapshot();}
+};window.bossReview.step(.01);
+</script></body></html>

@@ -6,7 +6,7 @@ import { Game } from '../src/game.js';
 test('both character rigs have usable imported clips and normalized quaternion tracks',()=>{
   for(const type of ['knight','warden']){
     const data=JSON.parse(fs.readFileSync(`assets/characters/${type}-clips.json`));
-    for(const name of ['idle','walk','run','light','heavy','roll','block','death','backward','left','right']){
+    for(const name of ['idle','walk','run','light','light2','light3','dual','heavy','roll','block','death','backward','left','right']){
       const clip=data.clips[name];assert.ok(clip.duration>.1);assert.ok(clip.tracks.length>=50);
       for(const track of clip.tracks){assert.ok(track.times.length>2);if(track.type==='quaternion')for(let i=0;i<track.values.length;i+=4)assert.ok(Math.abs(Math.hypot(...track.values.slice(i,i+4))-1)<.00001);}
     }

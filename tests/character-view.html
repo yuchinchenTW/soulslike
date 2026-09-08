@@ -9,14 +9,21 @@ scene.add(new THREE.HemisphereLight(0xdce5e5,0x363b3d,2));const key=new THREE.Di
 const ground=new THREE.Mesh(new THREE.PlaneGeometry(20,20),new THREE.MeshStandardMaterial({color:0x343b3d,roughness:.85}));ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
 const camera=new THREE.PerspectiveCamera(37,innerWidth/innerHeight,.05,50);
 await loadCharacterAssets();
-const rigs={player:createKnight({player:true}),enemy:createKnight(),boss:createKnight({boss:true})};for(const r of Object.values(rigs))scene.add(r.root);let rig=rigs.player;
-window.reviewPose=(action='idle',time=0,view='front',type='player')=>{
+const rigs={player:createKnight({player:true}),enemy:createKnight(),boss:createKnight({boss:true}),phantom:createKnight({boss:true,phantom:true})};for(const r of Object.values(rigs))scene.add(r.root);let rig=rigs.player;
+window.reviewPose=(action='idle',time=0,view='front',type='player',extra={})=>{
   rig=rigs[type];for(const [n,r]of Object.entries(rigs))r.root.visible=n===type;
-  const state={x:0,z:0,angle:0,hp:100,action,timer:time,moving:0,windup:1};
+  const state={x:0,z:0,angle:0,hp:100,action,timer:time,moving:0,windup:1,...extra};
   rig.mixer.stopAllAction();rig.current=null;
   animateKnight(rig,state,1/60,0);
-  camera.position.set(...(view==='side'?[4,1.7,.1]:view==='back'?[2.8,1.8,-4.2]:[2.5,1.8,4.3]));camera.lookAt(0,1.02,0);renderer.render(scene,camera);
+  camera.position.set(...(view==='side'?[4,1.7,.1]:view==='back'?[2.8,1.8,-4.2]:[2.5,1.8,4.3]));if(type==='boss'||type==='phantom')camera.position.multiplyScalar(1.65);camera.lookAt(0,type==='boss'||type==='phantom'?1.6:1.02,0);renderer.render(scene,camera);
   const p=new THREE.Vector3();let min=Infinity;rig.model.traverse(m=>{if(m.isSkinnedMesh&&m.geometry.attributes.position.count>1500){m.skeleton.update();for(let i=0;i<m.geometry.attributes.position.count;i++){p.fromBufferAttribute(m.geometry.attributes.position,i);m.applyBoneTransform(i,p);m.localToWorld(p);min=Math.min(min,p.y)}}});
   return {tip:rig.blade.tip.getWorldPosition(new THREE.Vector3()).toArray(),floor:min,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,joints:rig.root.getObjectsByProperty('isBone',true).length};
+};
+window.sampleClip=(name,time,type='player')=>{
+ window.reviewPose('idle',0,'front',type);
+ rig.mixer.stopAllAction();const a=rig.actions[name];a.reset().play();a.paused=true;a.time=time;rig.mixer.update(0);rig.root.updateMatrixWorld(true);
+ renderer.render(scene,camera);
+ const point=n=>rig.model.getObjectByName('mixamorig'+n).getWorldPosition(new THREE.Vector3()).toArray();
+ return {tip:rig.blade.tip.getWorldPosition(new THREE.Vector3()).toArray(),left:point('LeftHand'),right:point('RightHand'),blades:rig.blades.map(b=>({hand:b.hand,tip:b.tip.getWorldPosition(new THREE.Vector3()).toArray()}))};
 };window.reviewPose();window.reviewReady=true;
 </script></body></html>

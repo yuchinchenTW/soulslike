@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { CAMP, PILLARS, clamp, angleDelta } from './game.js';
 import { createKnight, animateKnight } from './character.js';
 import { RoomEnvironment } from '../node_modules/three/examples/jsm/environments/RoomEnvironment.js';
-import { MOTION } from './motion.js';
+import { attackMotion } from './motion.js';
+import { activeBossHands } from './pontiff.js';
 
 let seed = 381;
 function random() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
@@ -184,38 +185,44 @@ export class World {
     this.ash = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xd8d1af, size: .035, transparent: true, opacity: .55, depthWrite: false })); this.scene.add(this.ash);
     const moon = mesh(new THREE.SphereGeometry(3.8, 24, 16), new THREE.MeshBasicMaterial({ color: 0xd9dfc3, fog: false }), this.scene, -30, 37, -95); moon.castShadow = false;
   }
-  createActor(id, boss = false, player = false) {
-    const rig = createKnight({ boss, player });
+  createActor(id, boss = false, player = false, phantom = false) {
+    const rig = createKnight({ boss: boss || phantom, player, phantom });
     this.scene.add(rig.root); this.actors.set(id, rig);
     return rig;
   }
   syncActor(id, state, dt, time, player = false) {
-    const rig = this.actors.get(id) || this.createActor(id, state.boss, player);
+    const rig = this.actors.get(id) || this.createActor(id, state.boss, player, state.phantom);
     animateKnight(rig, state, dt, time);
     this.updateSwordTrail(rig, state, dt);
   }
   updateSwordTrail(rig, state, dt) {
-    if (!rig.trail) {
-      const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(10 * 6 * 3), 3)); geometry.setDrawRange(0, 0);
-      rig.trail = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: rig.player ? 0xdde5dd : 0xc6a383, transparent: true, opacity: .15, side: THREE.DoubleSide, depthWrite: false }));
-      rig.trail.frustumCulled = false; this.scene.add(rig.trail);
+    const clock = attackMotion(state), hands = activeBossHands(state);
+    for (const blade of rig.blades) {
+      if (!blade.trail) {
+        const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(10 * 6 * 3), 3)); geometry.setDrawRange(0, 0);
+        blade.trail = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: blade.color, transparent: true, opacity: rig.boss ? .34 : .17, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+        blade.trail.frustumCulled = false; this.scene.add(blade.trail);
+      }
+      const active = state.hp > 0 && (hands.includes(blade.hand) || (clock && state.action !== 'roll' && state.timer >= clock.impact - .055 && state.timer < clock.activeEnd) || (state.action === 'swing' && state.timer < .24));
+      for (const p of blade.trailPoints) p.age += dt;
+      blade.trailPoints = blade.trailPoints.filter(p => p.age < .11);
+      if (active && dt > 0) blade.trailPoints.push({ tip: blade.tip.getWorldPosition(new THREE.Vector3()), heel: blade.heel.getWorldPosition(new THREE.Vector3()), age: 0 });
+      if (blade.trailPoints.length > 10) blade.trailPoints.shift();
+      const positions = blade.trail.geometry.attributes.position; let n = 0;
+      for (let i = 1; i < blade.trailPoints.length; i++) {
+        const a = blade.trailPoints[i - 1], b = blade.trailPoints[i];
+        for (const v of [a.heel, a.tip, b.tip, a.heel, b.tip, b.heel]) positions.setXYZ(n++, v.x, v.y, v.z);
+      }
+      positions.needsUpdate = true; blade.trail.geometry.setDrawRange(0, n); blade.trail.visible = n > 0;
     }
-    const clock = MOTION[state.action];
-    const active = state.hp > 0 && ((clock && state.action !== 'roll' && state.timer >= clock.impact - .055 && state.timer < clock.activeEnd) || (state.action === 'swing' && state.timer < .24));
-    for (const p of rig.trailPoints) p.age += dt;
-    rig.trailPoints = rig.trailPoints.filter(p => p.age < .085);
-    if (active && dt > 0) rig.trailPoints.push({ tip: rig.blade.tip.getWorldPosition(new THREE.Vector3()), heel: rig.blade.heel.getWorldPosition(new THREE.Vector3()), age: 0 });
-    if (rig.trailPoints.length > 10) rig.trailPoints.shift();
-    const positions = rig.trail.geometry.attributes.position;
-    let n = 0;
-    for (let i = 1; i < rig.trailPoints.length; i++) {
-      const a = rig.trailPoints[i - 1], b = rig.trailPoints[i];
-      for (const v of [a.heel, a.tip, b.tip, a.heel, b.tip, b.heel]) positions.setXYZ(n++, v.x, v.y, v.z);
-    }
-    positions.needsUpdate = true; rig.trail.geometry.setDrawRange(0, n); rig.trail.visible = n > 0;
   }
   addEffect(type, e) {
     if (['hurt', 'hit', 'block', 'rage'].includes(type)) this.shake = type === 'hurt' ? .16 : .07;
+    if (['summon','burst'].includes(type)) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(.85,1,80),new THREE.MeshBasicMaterial({color:0x9d7afa,transparent:true,opacity:.7,side:THREE.DoubleSide,depthWrite:false}));
+      ring.rotation.x=-Math.PI/2;ring.position.set(e.x,.04,e.z);ring.scale.setScalar(type==='burst'?3.6:1.2);this.scene.add(ring);
+      this.effects.push({mesh:ring,life:.6,max:.6});
+    }
     if (['hit', 'block', 'heal', 'kill'].includes(type)) {
       for (let i = 0; i < (type === 'kill' ? 20 : 11); i++) {
         const mat = new THREE.MeshBasicMaterial({ color: type === 'heal' ? 0xffca72 : type === 'hit' ? 0xe7a074 : 0xf5de9e, transparent: true });
@@ -227,6 +234,7 @@ export class World {
   update(game, dt, elapsed, menu = false) {
     const animationDt = game.state !== 'paused' ? dt : 0;
     this.syncActor('player', game.player, animationDt, menu ? elapsed : game.time, true);
+    for (const [id,rig] of this.actors) if(id!=='player'&&!game.enemies.some(e=>e.id===id)){rig.root.visible=false;for(const b of rig.blades){b.trailPoints=[];if(b.trail)b.trail.visible=false;}}
     for (const e of game.enemies) this.syncActor(e.id, e, animationDt, menu ? elapsed : game.time);
     for (const f of this.fireParts) {
       f.mesh.scale.y = f.size * (.6 + Math.sin(elapsed * 9 + f.phase) * .22);

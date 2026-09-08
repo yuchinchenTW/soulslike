@@ -10,7 +10,7 @@ function readRig(file) {
   const root = new THREE.Group(); for (const i of json.scenes[json.scene || 0].nodes) root.add(objects[i]); root.updateMatrixWorld(true);
   return root;
 }
-const sources = Object.fromEntries(['idle','walk','run','light','heavy','roll','block','stagger','death','heal','backward','right','left'].map(name => {
+const sources = Object.fromEntries(['idle','walk','run','light','light2','light3','dual','heavy','roll','block','stagger','death','heal','backward','right','left'].map(name => {
   const b=fs.readFileSync(`assets/animations/${name}.fbx`); return [name,new FBXLoader().parse(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),'')];
 }));
 for (const type of ['knight','warden']) {
