@@ -6,7 +6,7 @@
   "description": "An original third-person soulslike combat prototype",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check src/main.js && node --check src/world.js && node --check src/game.js && node --check src/character.js && node --check src/motion.js && node --check src/pontiff.js && node --check src/regalia.js && node --check src/static-batches.js && node --check src/performance.js && node --check src/surfaces.js && node --check src/fire.js && node --check src/grass.js",
+    "check": "node --check src/main.js && node --check src/world.js && node --check src/game.js && node --check src/character.js && node --check src/motion.js && node --check src/pontiff.js && node --check src/regalia.js && node --check src/static-batches.js && node --check src/performance.js && node --check src/surfaces.js && node --check src/fire.js && node --check src/grass.js && node --check src/props.js",
     "test": "node --test tests/combat.test.js tests/motion.test.js tests/pontiff.test.js tests/performance.test.js"
   },
   "dependencies": {

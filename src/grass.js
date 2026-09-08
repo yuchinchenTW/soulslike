@@ -36,8 +36,10 @@ function clumpGeometry() {
   geometry.computeBoundingSphere(); return geometry;
 }
 
-export function createGrass(random, count, place) {
-  const material = new THREE.MeshStandardMaterial({ map: bladeTexture(), alphaTest: .45, side: THREE.DoubleSide, roughness: 1, metalness: 0, color: 0xbfb89a });
+// Installs the wind sway on any standard material: the top of each blade bends
+// by a gust that varies with the clump's world position.
+// byHeight: scanned tufts have arbitrary UVs, so bend by local height (metres to full bend) instead.
+export function applyWind(material, strength = .07, byHeight = 0) {
   material.onBeforeCompile = shader => {
     shader.uniforms.uWind = wind;
     shader.vertexShader = shader.vertexShader
@@ -47,10 +49,16 @@ export function createGrass(random, count, place) {
         #ifdef USE_INSTANCING
           clumpOrigin = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         #endif
-        float bend = uv.y * uv.y;
+        float bend = ${byHeight ? 'clamp(position.y * ' + (1 / byHeight).toFixed(3) + ', 0.0, 1.0)' : 'uv.y'}; bend *= bend;
         float gust = sin(uWind * 1.4 + clumpOrigin.x * .7 + clumpOrigin.z * .5) + .5 * sin(uWind * 2.9 + clumpOrigin.z * 1.3);
-        transformed.x += gust * .07 * bend; transformed.z += cos(uWind * 1.1 + clumpOrigin.x * .9) * .04 * bend;`);
+        transformed.x += gust * ${strength.toFixed(3)} * bend; transformed.z += cos(uWind * 1.1 + clumpOrigin.x * .9) * ${(strength * .6).toFixed(3)} * bend;`);
   };
+  material.customProgramCacheKey = () => 'wind' + strength + '/' + byHeight;
+  return material;
+}
+
+export function createGrass(random, count, place) {
+  const material = applyWind(new THREE.MeshStandardMaterial({ map: bladeTexture(), alphaTest: .45, side: THREE.DoubleSide, roughness: 1, metalness: 0, color: 0xbfb89a }));
   const grass = new THREE.InstancedMesh(clumpGeometry(), material, count);
   grass.castShadow = true; grass.receiveShadow = true;
   const temp = new THREE.Object3D(), color = new THREE.Color();

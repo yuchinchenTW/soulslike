@@ -111,6 +111,8 @@ Three.js 採 MIT 授權，授權內容見 `node_modules/three/LICENSE`。
 
 篝火中的劍改用聖騎士模型自帶的貼圖長劍，刃朝下插在餘火中。地面的草由圓錐體改為交叉的葉片卡片：程序繪製的乾草貼圖、逐叢色調變化與頂端隨風擺動，集中在拱廊與牆基。實作在 `src/grass.js`，劍由 `createSwordProp` 產生。
 
+碎石、篝火石圈與草叢改用 Poly Haven 的 CC0 掃描模型（`rock_09`、`rock_07`、`stone_fire_pit`、`grass_medium_02`），以實例化方式擺放，草叢沿用風搖著色器。火盆改為車削成形的鐵碗與發光炭塊。模型載入與擺放在 `src/props.js`。
+
 ## 部署到 Render
 
 

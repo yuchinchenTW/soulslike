@@ -8,7 +8,8 @@ import { batchArchitecture } from './static-batches.js';
 import { AdaptiveResolution } from './performance.js';
 import { triplanar, loadSurfaces, loadSky } from './surfaces.js';
 import { Fire, updateFires } from './fire.js';
-import { createGrass, updateGrass } from './grass.js';
+import { updateGrass } from './grass.js';
+import { loadProps, createRubble, createFirePit, createTufts } from './props.js';
 
 let seed = 381;
 function random() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
@@ -62,9 +63,19 @@ export class World {
     const echo=this.createActor('echo',false,false,true);
     animateKnight(echo,{x:0,z:-13,angle:0,hp:100,action:'idle',timer:0,moving:0},0,0);
     echo.root.visible=false;
+    const props = await loadProps(this.renderer); this.buildProps(props);
     await Promise.all([loadSurfaces(this.renderer, { castle_wall_slates: [stone, trim], large_grey_tiles: [floor], rock_wall_10: [dark] }), loadSky(this.renderer, this.scene, { rotation: -2.3, blur: .04, background: .55, environment: .75 })]);
     // Compile the phantom's materials during loading, before combat starts.
     await this.renderer.compileAsync(this.scene,this.camera);
+  }
+  buildProps(props) {
+    this.scene.add(createRubble(props, random, 42));
+    this.scene.add(createFirePit(props, CAMP.x, CAMP.z, 1.7));
+    // Dry grass gathers along the arcades and wall bases, thinning toward the court.
+    this.scene.add(createTufts(props, random, 1300, () => {
+      const side = random() > .5 ? 1 : -1, edge = random();
+      return [side * (edge < .7 ? 9 + random() * 7.5 : 16.2 + random() * .9), random() * 40 - 20];
+    }));
   }
   buildEnvironment() {
     box(this.scene, dark, 0, -.62, 0, 37, .8, 46);
@@ -121,19 +132,7 @@ export class World {
       const x = (i % 2 ? -1 : 1) * (25 + random() * 33), z = -25 - random() * 55;
       this.tower(x, z, 15 + random() * 24, 2.5 + random() * 3);
     }
-    const rubble = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), stone, 160);
-    rubble.castShadow = true; rubble.receiveShadow = true;
-    for (let i = 0; i < 160; i++) {
-      temp.position.set((random() > .5 ? 1 : -1) * (10 + random() * 6.5), .1, random() * 39 - 19.5);
-      temp.rotation.set(random() * 3, random() * 6, random() * 3); const s = .1 + random() * .35; temp.scale.set(s * 1.8, s * .7, s); temp.updateMatrix(); rubble.setMatrixAt(i, temp.matrix);
-    }
-    this.scene.add(rubble);
-    // Dry grass gathers along the arcades and wall bases, thinning toward the court.
-    this.scene.add(createGrass(random, 1100, () => {
-      const side = random() > .5 ? 1 : -1, edge = random();
-      const x = side * (edge < .7 ? 9 + random() * 7.5 : 16.2 + random() * .9);
-      return [x, random() * 40 - 20];
-    }));
+    // Rubble, grass tufts and the bonfire's stone ring are scanned props, added in prepare().
     for (const x of [-8, 8]) for (const z of [-18, 10]) this.brazier(x, z);
   }
   pillar(x, z, scale = 1) {
@@ -169,19 +168,24 @@ export class World {
     const emblem = box(this.scene, gold, x, 7, z + .04, .3, 1.4, .03); emblem.rotation.z = Math.PI / 4;
   }
   brazier(x, z) {
-    cylinder(this.scene, dark, x, .3, z, .5, .65, .6, 8);
-    cylinder(this.scene, blackMetal, x, 1, z, .16, .27, 1.3, 8);
-    cylinder(this.scene, gold, x, 1.7, z, .48, .2, .4, 8);
+    cylinder(this.scene, dark, x, .3, z, .5, .65, .6, 12);
+    cylinder(this.scene, dark, x, .95, z, .2, .3, .8, 12);
+    box(this.scene, trim, x, 1.4, z, .5, .1, .5);
+    // Hammered iron bowl: a lathe profile with a rolled rim, resting on the column.
+    const profile = [[.05, 0], [.22, .02], [.36, .1], [.44, .22], [.47, .34], [.5, .4], [.46, .42], [.43, .36], [.4, .24], [.32, .12], [.2, .06], [.05, .05]].map(([r, y]) => new THREE.Vector2(r, y));
+    const bowl = mesh(new THREE.LatheGeometry(profile, 24), blackMetal, this.scene, x, 1.45, z);
+    const coals = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.055, 0), new THREE.MeshStandardMaterial({ color: 0x2a1a12, emissive: 0xff6a1a, emissiveIntensity: 1.6, roughness: .9 }), 22);
+    const t = new THREE.Object3D();
+    for (let i = 0; i < 22; i++) { const a = random() * 6.28, r = random() * .3; t.position.set(x + Math.cos(a) * r, 1.72 + random() * .06, z + Math.sin(a) * r); t.rotation.set(random() * 3, random() * 3, 0); t.scale.setScalar(.7 + random() * .7); t.updateMatrix(); coals.setMatrixAt(i, t.matrix); }
+    coals.castShadow = false; this.scene.add(coals); bowl.castShadow = true;
     this.flame(x, 1.95, z, .55, { smoke: false, embers: 14 });
     const light = new THREE.PointLight(0xff7a2a, 9, 7, 2); light.position.set(x, 2.6, z); this.scene.add(light); this.brazierLights.push(light);
   }
   buildFire() {
-    for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; const rock = mesh(new THREE.DodecahedronGeometry(.29), dark, this.scene, CAMP.x + Math.cos(a) * .72, .18, CAMP.z + Math.sin(a) * .72); rock.scale.y = .65; }
-    for (let i = 0; i < 5; i++) { const log = cylinder(this.scene, dark, CAMP.x, .17 + i * .015, CAMP.z, .12, .14, 1.25, 6); log.rotation.z = Math.PI / 2; log.rotation.y = i * 2.2; }
     // The paladin's sword stands planted in the embers, blade down, leaning slightly.
     const sword = createSwordProp(1.45); sword.position.set(CAMP.x + .04, -.12, CAMP.z); sword.rotation.set(.06, .9, -.16); this.scene.add(sword);
     this.flame(CAMP.x, .3, CAMP.z, .85, { embers: 48 });
-    this.campLight = new THREE.PointLight(0xff8c35, 26, 12, 2); this.campLight.position.set(CAMP.x, 1.6, CAMP.z); this.scene.add(this.campLight);
+    this.campLight = new THREE.PointLight(0xff8c35, 16, 10, 2); this.campLight.position.set(CAMP.x, 1.6, CAMP.z); this.scene.add(this.campLight);
   }
   flame(x, y, z, size, options) {
     const fire = new Fire(size, options); fire.group.position.set(x, y, z); this.scene.add(fire.group);
@@ -245,7 +249,7 @@ export class World {
     for (const [id,rig] of this.actors) if(id!=='player'&&!game.enemies.some(e=>e.id===id)){rig.root.visible=false;for(const b of rig.blades){b.trailPoints=[];if(b.trail)b.trail.visible=false;}}
     for (const e of game.enemies) this.syncActor(e.id, e, animationDt, menu ? elapsed : game.time);
     updateFires(elapsed, this.renderer.getDrawingBufferSize(new THREE.Vector2()).y); updateGrass(elapsed);
-    this.campLight.intensity = 25 + Math.sin(elapsed * 11) * 3 + Math.sin(elapsed * 7) * 2;
+    this.campLight.intensity = 15 + Math.sin(elapsed * 11) * 2 + Math.sin(elapsed * 7) * 1.2;
     for (const [i, light] of this.brazierLights.entries()) light.intensity = 8 + Math.sin(elapsed * 9 + i * 1.3) * 1.2 + Math.sin(elapsed * 5.3 + i) * .8;
     for (const flag of this.flags) {
       const p = flag.geometry.attributes.position, base = flag.userData.base;

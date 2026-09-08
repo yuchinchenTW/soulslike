@@ -100,6 +100,26 @@
         "path": "assets/sky/qwantani_dusk_2_puresky_1k.hdr",
         "source": "https://polyhaven.com/a/qwantani_dusk_2_puresky",
         "use": "sky, environment lighting and reflections"
+      },
+      {
+        "path": "assets/models/rock_09/",
+        "source": "https://polyhaven.com/a/rock_09",
+        "use": "rubble (instanced)"
+      },
+      {
+        "path": "assets/models/rock_07/",
+        "source": "https://polyhaven.com/a/rock_07",
+        "use": "rubble (instanced)"
+      },
+      {
+        "path": "assets/models/stone_fire_pit/",
+        "source": "https://polyhaven.com/a/stone_fire_pit",
+        "use": "bonfire stone ring"
+      },
+      {
+        "path": "assets/models/grass_medium_02/",
+        "source": "https://polyhaven.com/a/grass_medium_02",
+        "use": "dry grass tufts (instanced)"
       }
     ]
   }
