@@ -42,6 +42,18 @@ function extractProp(scene, name, jointName) {
   geometry.deleteAttribute('skinIndex');geometry.deleteAttribute('skinWeight');geometry.computeVertexNormals();geometry.computeBoundingBox();
   return {geometry,material:source.material,position:bone.position.clone(),quaternion:bone.quaternion.clone(),parent:bone.parent.name};
 }
+// Guarding while moving has no clip of its own: the shield pose is held on the
+// upper body while each locomotion clip keeps driving the hips and legs.
+const LOWER_BODY=/Hips|Leg|Foot|Toe/;
+function guardClips(clips){
+  if(!clips.block)return clips;
+  const held=clips.block.tracks.filter(t=>!LOWER_BODY.test(t.name)).map(t=>{const v=t.createInterpolant().evaluate(.5);return new t.constructor(t.name,[0],Array.from(v));});
+  for(const move of ['walk','backward','left','right']){
+    const base=clips[move];if(!base)continue;
+    clips['block_'+move]=new THREE.AnimationClip('block_'+move,base.duration,[...base.tracks.filter(t=>LOWER_BODY.test(t.name)).map(t=>t.clone()),...held.map(t=>t.clone())]);
+  }
+  return clips;
+}
 export async function loadCharacterAssets() {
   if(cache.size===2)return;
   const loader = new GLTFLoader();
@@ -50,7 +62,7 @@ export async function loadCharacterAssets() {
     if(!response.ok)throw new Error(`Could not load ${type} animation library`);
     const data=await response.json();
     gltf.scene.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;o.frustumCulled=false;const materials=Array.isArray(o.material)?o.material:[o.material];for(const mat of materials){mat.envMapIntensity=.55;mat.roughness=Math.max(.6,mat.roughness);if(mat.map)mat.map.anisotropy=4;}}});
-    cache.set(type,{scene:gltf.scene,clips:Object.fromEntries(Object.entries(data.clips).map(([n,c])=>[n,THREE.AnimationClip.parse(c)])),metadata:data.metadata});
+    cache.set(type,{scene:gltf.scene,clips:guardClips(Object.fromEntries(Object.entries(data.clips).map(([n,c])=>[n,THREE.AnimationClip.parse(c)]))),metadata:data.metadata});
   }));
   const warden=cache.get('warden').scene;
   // The source conversion labels meshes out of order; these are verified by geometry and skin weights.
@@ -120,7 +132,7 @@ export function createKnight({boss=false,player=false,phantom=false}={}) {
   if(boss)addRegalia(root,model,height,bounds.min.y);
   if(phantom)root.traverse(o=>{if(o.isMesh){o.material=o.material.clone();o.material.color.set(0x756bb1);o.material.emissive.set(0x514589);o.material.emissiveIntensity=.7;o.material.transparent=true;o.material.opacity=.38;o.material.depthWrite=false;o.material.forceSinglePass=true;o.castShadow=false;o.receiveShadow=false;}});
   const mixer=new THREE.AnimationMixer(model),actions={};
-  for(const [name,clip]of Object.entries(asset.clips)){const a=mixer.clipAction(clip);a.clampWhenFinished=true;a.setLoop(['idle','walk','run','block','backward','left','right'].includes(name)?THREE.LoopRepeat:THREE.LoopOnce,Infinity);actions[name]=a;}
+  for(const [name,clip]of Object.entries(asset.clips)){const a=mixer.clipAction(clip);a.clampWhenFinished=true;a.setLoop(['idle','walk','run','block','backward','left','right'].includes(name)||name.startsWith('block_')?THREE.LoopRepeat:THREE.LoopOnce,Infinity);actions[name]=a;}
   const tell=new THREE.Mesh(new THREE.TorusGeometry(boss?1.1:.9,.012,6,64),new THREE.MeshBasicMaterial({color:0xbc925e,transparent:true,opacity:0,depthWrite:false}));tell.rotation.x=Math.PI/2;tell.position.y=.026;root.add(tell);
   const contacts=['LeftFoot','RightFoot','LeftToeBase','RightToeBase','Head','LeftForeArm','RightForeArm','LeftLeg','RightLeg'].map(n=>({node:model.getObjectByName(boneName(n)),radius:n==='Head'?.11:.035}));
   const support=[];
@@ -129,6 +141,10 @@ export function createKnight({boss=false,player=false,phantom=false}={}) {
   return {root,model,mixer,actions,asset,type,boss,player,phantom,tell,blade:blades[0],blades,swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y};
 }
 
+function locomotion(state){
+  if(state.moveX!==undefined){const forward=state.moveX*Math.sin(state.angle)+state.moveZ*Math.cos(state.angle),side=state.moveX*Math.cos(state.angle)-state.moveZ*Math.sin(state.angle);if(forward<-.4)return'backward';if(Math.abs(side)>.65)return side>0?'right':'left';}
+  return state.moving>3&&!state.blocking?'run':'walk';
+}
 function animationChoice(rig,state) {
   if(state.hp<=0)return'death';
   if(state.action==='light')return state.attackClip||'light';
@@ -136,11 +152,8 @@ function animationChoice(rig,state) {
   if(rig.boss&&['summon','echoWait','idle','recover'].includes(state.action)&&!state.moving)return'dual';
   if(['light','heavy','roll','heal','stagger'].includes(state.action))return state.action;
   if(['windup','swing','recover'].includes(state.action))return 'heavy';
-  if(state.blocking)return'block';
-  if(state.moving>.1){
-    if(state.moveX!==undefined){const forward=state.moveX*Math.sin(state.angle)+state.moveZ*Math.cos(state.angle),side=state.moveX*Math.cos(state.angle)-state.moveZ*Math.sin(state.angle);if(forward<-.4)return'backward';if(Math.abs(side)>.65)return side>0?'right':'left';}
-    return state.moving>3?'run':'walk';
-  }
+  if(state.blocking)return state.moving>.1?'block_'+locomotion(state):'block';
+  if(state.moving>.1)return locomotion(state);
   return'idle';
 }
 export function animateKnight(rig,state,dt,time) {
@@ -165,7 +178,7 @@ export function animateKnight(rig,state,dt,time) {
   else if(['light','light2','light3','heavy'].includes(name))action.time=Math.min(duration-.001,state.timer/attackMotion(state).duration*duration);
   else if(name==='heal')action.time=2.15+Math.min(1,state.timer/1.3)*2.35;
   else if(name==='stagger')action.time=Math.min(duration-.001,state.timer/.48*duration);
-  else {const speed=name==='walk'?Math.max(.6,state.moving/1.8):name==='run'?Math.max(.8,state.moving/4.4):1;action.time=(rig.elapsed*speed)%duration;}
+  else {const gait=name.replace('block_','');const speed=gait==='walk'?Math.max(.6,state.moving/1.8):gait==='run'?Math.max(.8,state.moving/4.4):name.startsWith('block_')?.8:1;action.time=(rig.elapsed*speed)%duration;}
   // The combat clock selects the exact frame; the mixer only performs cross-fades.
   action.paused=true;rig.mixer.update(dt);
   rig.model.position.y=rig.baseY;
