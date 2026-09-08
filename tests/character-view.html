@@ -25,5 +25,10 @@ window.sampleClip=(name,time,type='player')=>{
  renderer.render(scene,camera);
  const point=n=>rig.model.getObjectByName('mixamorig'+n).getWorldPosition(new THREE.Vector3()).toArray();
  return {tip:rig.blade.tip.getWorldPosition(new THREE.Vector3()).toArray(),left:point('LeftHand'),right:point('RightHand'),blades:rig.blades.map(b=>({hand:b.hand,tip:b.tip.getWorldPosition(new THREE.Vector3()).toArray()}))};
+};
+window.samplePoints=(name,time,bones,type='player')=>{
+ window.reviewPose('idle',0,'front',type);
+ rig.mixer.stopAllAction();const a=rig.actions[name];a.reset().play();a.paused=true;a.time=time;rig.mixer.update(0);rig.root.updateMatrixWorld(true);
+ return Object.fromEntries(bones.map(n=>[n,rig.model.getObjectByName('mixamorig'+n).getWorldPosition(new THREE.Vector3()).toArray()]));
 };window.reviewPose();window.reviewReady=true;
 </script></body></html>
