@@ -7,6 +7,7 @@ import { activeBossHands } from './pontiff.js';
 import { batchArchitecture } from './static-batches.js';
 import { AdaptiveResolution } from './performance.js';
 import { triplanar, loadSurfaces, loadSky } from './surfaces.js';
+import { Fire, updateFires } from './fire.js';
 
 let seed = 381;
 function random() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
@@ -46,9 +47,9 @@ export class World {
     const fill = new THREE.DirectionalLight(0xbad1d4, .9); fill.position.set(12, 14, 18); this.scene.add(fill);
     const sun = new THREE.DirectionalLight(0xffe4b0, 3.4); sun.position.set(-19, 34, -27); sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 29, bottom: -29, near: 1, far: 95 }); sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; this.scene.add(sun);
-    this.actors = new Map(); this.effects = []; this.fireParts = []; this.flags = [];
+    this.actors = new Map(); this.effects = []; this.brazierLights = []; this.flags = [];
     this.buildEnvironment(); this.buildFire(); this.buildAtmosphere(); this.resize();
-    batchArchitecture(this.scene,new Set([...this.flags,...this.fireParts.map(f=>f.mesh)]));
+    batchArchitecture(this.scene,new Set(this.flags));
     this.dropMesh = new THREE.Group(); this.scene.add(this.dropMesh);
     const dropMat = new THREE.MeshBasicMaterial({ color: 0xa1d2bc, transparent: true, opacity: .65 });
     ring(this.dropMesh, dropMat, 0, .12, 0, .5, .025);
@@ -172,24 +173,19 @@ export class World {
     cylinder(this.scene, dark, x, .3, z, .5, .65, .6, 8);
     cylinder(this.scene, blackMetal, x, 1, z, .16, .27, 1.3, 8);
     cylinder(this.scene, gold, x, 1.7, z, .48, .2, .4, 8);
-    this.flame(x, 1.95, z, .55);
+    this.flame(x, 1.95, z, .55, { smoke: false, embers: 14 });
+    const light = new THREE.PointLight(0xff7a2a, 9, 7, 2); light.position.set(x, 2.6, z); this.scene.add(light); this.brazierLights.push(light);
   }
   buildFire() {
     for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; const rock = mesh(new THREE.DodecahedronGeometry(.29), dark, this.scene, CAMP.x + Math.cos(a) * .72, .18, CAMP.z + Math.sin(a) * .72); rock.scale.y = .65; }
     for (let i = 0; i < 5; i++) { const log = cylinder(this.scene, dark, CAMP.x, .17 + i * .015, CAMP.z, .12, .14, 1.25, 6); log.rotation.z = Math.PI / 2; log.rotation.y = i * 2.2; }
     const sword = new THREE.Group(); sword.position.set(CAMP.x, .1, CAMP.z); sword.rotation.z = -.18; this.scene.add(sword);
     box(sword, swordMat, 0, .82, 0, .1, 1.65, .055); box(sword, gold, 0, 1.35, 0, .5, .08, .1); cylinder(sword, dark, 0, 1.55, 0, .05, .05, .35, 6);
-    this.flame(CAMP.x, .3, CAMP.z, 1.2);
+    this.flame(CAMP.x, .3, CAMP.z, .85, { embers: 48 });
     this.campLight = new THREE.PointLight(0xff8c35, 26, 12, 2); this.campLight.position.set(CAMP.x, 1.6, CAMP.z); this.scene.add(this.campLight);
   }
-  flame(x, y, z, size) {
-    const g = new THREE.Group(); g.position.set(x, y, z); this.scene.add(g);
-    for (let i = 0; i < 5; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: [0xff7331, 0xffb541, 0xffdc8c][i % 3], transparent: true, opacity: .72, depthWrite: false, blending: THREE.AdditiveBlending });
-      const m = mesh(new THREE.OctahedronGeometry(1), mat, g, (random() - .5) * .27 * size, .35 * size, (random() - .5) * .27 * size);
-      m.scale.set(.2 * size, (.4 + random() * .4) * size, .18 * size); m.castShadow = false;
-      this.fireParts.push({ mesh: m, size, phase: random() * 6.28 });
-    }
+  flame(x, y, z, size, options) {
+    const fire = new Fire(size, options); fire.group.position.set(x, y, z); this.scene.add(fire.group);
   }
   buildAtmosphere() {
     const geo = new THREE.BufferGeometry(), positions = new Float32Array(360 * 3);
@@ -249,11 +245,9 @@ export class World {
     this.syncActor('player', game.player, animationDt, menu ? elapsed : game.time, true);
     for (const [id,rig] of this.actors) if(id!=='player'&&!game.enemies.some(e=>e.id===id)){rig.root.visible=false;for(const b of rig.blades){b.trailPoints=[];if(b.trail)b.trail.visible=false;}}
     for (const e of game.enemies) this.syncActor(e.id, e, animationDt, menu ? elapsed : game.time);
-    for (const f of this.fireParts) {
-      f.mesh.scale.y = f.size * (.6 + Math.sin(elapsed * 9 + f.phase) * .22);
-      f.mesh.rotation.y = elapsed * 1.5 + f.phase; f.mesh.position.y = f.size * (.4 + Math.sin(elapsed * 4 + f.phase) * .08);
-    }
+    updateFires(elapsed, this.renderer.getDrawingBufferSize(new THREE.Vector2()).y);
     this.campLight.intensity = 25 + Math.sin(elapsed * 11) * 3 + Math.sin(elapsed * 7) * 2;
+    for (const [i, light] of this.brazierLights.entries()) light.intensity = 8 + Math.sin(elapsed * 9 + i * 1.3) * 1.2 + Math.sin(elapsed * 5.3 + i) * .8;
     for (const flag of this.flags) {
       const p = flag.geometry.attributes.position, base = flag.userData.base;
       for (let i = 0; i < p.count; i++) p.setZ(i, Math.sin(base[i * 3 + 1] * 2.2 + elapsed * 2 + flag.position.x) * .17 * (2.85 - base[i * 3 + 1]) / 5.7);
@@ -305,6 +299,7 @@ export class World {
     if(!['auto','performance','high'].includes(mode))return;
     this.quality=mode;this.adaptive=new AdaptiveResolution();
     this.renderer.shadowMap.enabled=mode!=='performance';this.renderer.shadowMap.needsUpdate=true;this.resize();
+    for(const light of this.brazierLights)light.visible=mode!=='performance';
   }
   adaptQuality(sample){if(this.quality==='auto'&&this.adaptive.sample(sample))this.resize();}
 }
