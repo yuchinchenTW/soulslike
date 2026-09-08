@@ -138,7 +138,7 @@ export function createKnight({boss=false,player=false,phantom=false}={}) {
   const support=[];
   model.updateMatrixWorld(true);
   model.traverse(o=>{if(o.isSkinnedMesh&&o.geometry.attributes.position.count>1500){const indices=[],a=o.geometry.attributes.position;for(let i=0;i<a.count;i+=Math.max(1,Math.floor(a.count/350)))indices.push(i);support.push(contactSamples(o,indices));}});
-  return {root,model,mixer,actions,asset,type,boss,player,phantom,tell,blade:blades[0],blades,swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y,stanceYaw:0};
+  return {root,model,mixer,actions,asset,type,boss,player,phantom,tell,blade:blades[0],blades,swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y,stanceYaw:0,headYaw:0,neck:model.getObjectByName(boneName('Neck')),head:model.getObjectByName(boneName('Head'))};
 }
 
 // Mixamo's sword-and-shield stances stand turned away from the travel axis
@@ -146,6 +146,15 @@ export function createKnight({boss=false,player=false,phantom=false}={}) {
 // strafe clips face the way the character actually faces, e.g. a locked enemy.
 // Attack, roll and boss clips keep their own orientation: their timing is tuned.
 const STANCE_YAW={idle:55,block:67,stagger:61,left:70,right:65,block_left:70,block_right:65};
+// In those stances the head looks past the shield toward where the body was
+// turned; once the body faces forward the gaze is brought forward as well.
+const HEAD_YAW={idle:43,block:63,left:62,right:58,block_walk:65,block_backward:64,block_left:65,block_right:64};
+const _up=new THREE.Vector3(0,1,0),_qa=new THREE.Quaternion(),_qb=new THREE.Quaternion(),_qc=new THREE.Quaternion();
+function yawBone(bone,yaw){
+  const parent=bone.parent.getWorldQuaternion(_qa);
+  bone.quaternion.premultiply(_qc.copy(parent).invert().multiply(_qb.setFromAxisAngle(_up,yaw)).multiply(parent));
+  bone.updateWorldMatrix(false,false);
+}
 function locomotion(state){
   if(state.moveX!==undefined){const forward=state.moveX*Math.sin(state.angle)+state.moveZ*Math.cos(state.angle),side=state.moveX*Math.cos(state.angle)-state.moveZ*Math.sin(state.angle);if(forward<-.4)return'backward';if(Math.abs(side)>.65)return side>0?'right':'left';}
   return state.moving>3&&!state.blocking?'run':'walk';
@@ -167,6 +176,8 @@ export function animateKnight(rig,state,dt,time) {
   const name=animationChoice(rig,state),action=rig.actions[name];
   const stance=rig.boss?0:(STANCE_YAW[name]||0)*Math.PI/180;
   rig.stanceYaw+=(stance-rig.stanceYaw)*Math.min(1,dt*12);
+  const gaze=rig.boss?0:(HEAD_YAW[name]||0)*Math.PI/180;
+  rig.headYaw+=(gaze-rig.headYaw)*Math.min(1,dt*12);
   rig.root.rotation.y=state.angle+rig.stanceYaw;
   if(rig.current!==name || rig.lastSerial!==state.actionSerial || (rig.lastState!==state.action&&['light','light2','light3','heavy','roll','heal','stagger'].includes(name))){
     const previous=rig.current&&rig.actions[rig.current];action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
@@ -191,6 +202,7 @@ export function animateKnight(rig,state,dt,time) {
   action.paused=true;rig.mixer.update(dt);
   rig.model.position.y=rig.baseY;
   rig.root.updateMatrixWorld(true);
+  if(Math.abs(rig.headYaw)>.001&&rig.neck&&rig.head){yawBone(rig.neck,-rig.headYaw*.45);yawBone(rig.head,-rig.headYaw*.55);rig.root.updateMatrixWorld(true);}
   // Imported foot/toe contacts correct tiny rig-height differences while preserving mocap pelvis motion.
   if(name!=='death'){
     let floor=Infinity;
