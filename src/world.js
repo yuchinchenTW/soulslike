@@ -284,6 +284,13 @@ export class World {
     if(elapsed<this.shadowTime||elapsed-this.shadowTime>=1/30){this.renderer.shadowMap.needsUpdate=true;this.shadowTime=elapsed;}
     this.renderer.render(this.scene, this.camera);
   }
+  // World-space yaw of an actor's hips, for tests that check which way the model faces.
+  actorFacing(id) {
+    const rig = this.actors.get(id); if (!rig) return null;
+    rig.root.updateMatrixWorld(true);
+    const l = rig.model.getObjectByName('mixamorigLeftUpLeg').getWorldPosition(new THREE.Vector3()), r = rig.model.getObjectByName('mixamorigRightUpLeg').getWorldPosition(new THREE.Vector3());
+    return Math.atan2(r.z - l.z, l.x - r.x);
+  }
   project(actor, height) {
     const p = new THREE.Vector3(actor.x, height, actor.z).project(this.camera);
     return { x: (p.x * .5 + .5) * innerWidth, y: (-p.y * .5 + .5) * innerHeight, visible: p.z > -1 && p.z < 1 && Math.abs(p.x) < 1 && Math.abs(p.y) < 1 };
