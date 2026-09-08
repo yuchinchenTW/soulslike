@@ -87,3 +87,20 @@ test('paused simulation freezes combat and stamina cannot fund unavailable actio
   const g = play(); g.player.stamina = 5; g.trigger('heavy'); assert.equal(g.player.action, 'idle');
   g.state = 'paused'; const z = g.player.z; tick(g, 1, { x: 0, z: -1 }); assert.equal(g.player.z, z); assert.equal(g.time, 0);
 });
+
+test('wheel target cycling wraps both ways and skips dead or distant enemies', () => {
+  const g=play();Object.assign(g.player,{x:0,z:0});
+  Object.assign(g.enemies[0],{x:-3,z:0});Object.assign(g.enemies[1],{x:3,z:0});
+  g.locked='sentinel-a';g.cycleTarget(1);assert.equal(g.locked,'sentinel-b');
+  g.cycleTarget(1);assert.equal(g.locked,'warden');g.cycleTarget(1);assert.equal(g.locked,'sentinel-a');
+  g.cycleTarget(-1);assert.equal(g.locked,'warden');
+  g.enemies[1].hp=0;g.enemies[2].z=-30;g.locked='sentinel-a';g.cycleTarget(1);assert.equal(g.locked,'sentinel-a');
+  g.enemies.push({id:'echo',phantom:true,hp:100,x:2,z:0});g.cycleTarget(1);assert.equal(g.locked,'echo');
+});
+
+test('target cycling preserves actions and does not acquire targets while unlocked or paused', () => {
+  const g=play();g.cycleTarget(1);assert.equal(g.locked,null);
+  g.locked='sentinel-a';g.trigger('light');const serial=g.player.actionSerial,stamina=g.player.stamina;
+  g.cycleTarget(1);assert.equal(g.locked,'sentinel-b');assert.equal(g.player.actionSerial,serial);assert.equal(g.player.stamina,stamina);
+  g.state='paused';g.cycleTarget(-1);assert.equal(g.locked,'sentinel-b');
+});

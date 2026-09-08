@@ -14,6 +14,7 @@ let toastUntil = 0, bannerUntil = 0, hurtUntil = 0, helpReturn = 'menu';
 let hitStop = 0;
 const keys = new Set();
 let rightMouse = false, dragged = false;
+let lastTargetWheel = -Infinity;
 
 class Sound {
   constructor() { this.enabled = true; this.ctx = null; }
@@ -55,7 +56,7 @@ function banner(title, subtitle, seconds = 3.5) { $('banner').querySelector('h2'
 function requestMouse() {
   try { const result = canvas.requestPointerLock?.(); result?.catch?.(() => toast('可按住滑鼠拖曳或使用方向鍵旋轉視角')); } catch { toast('使用方向鍵旋轉視角'); }
 }
-function clearInput() { keys.clear(); rightMouse = false; dragged = false; }
+function clearInput() { keys.clear(); rightMouse = false; dragged = false; lastTargetWheel = -Infinity; }
 function pause() {
   if (game.state !== 'playing') return;
   game.state = 'paused'; clearInput(); show('pause'); document.exitPointerLock?.();
@@ -153,7 +154,14 @@ try {
   });
   document.addEventListener('keyup', e => keys.delete(e.code));
   canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
   canvas.addEventListener('mousedown', e => {
+    if (e.button === 1) {
+      e.preventDefault(); // Suppress browser autoscroll without starting a camera drag.
+      lastTargetWheel = -Infinity;
+      if (game.state === 'playing') game.trigger('lock');
+      return;
+    }
     if (game.state !== 'playing') return;
     if (e.button === 0) game.trigger('light');
     if (e.button === 2) rightMouse = true;
@@ -164,7 +172,18 @@ try {
     if (game.state !== 'playing' || game.target || !(document.pointerLockElement === canvas || dragged)) return;
     world.yaw -= e.movementX * .003; world.pitch = Math.max(-.04, Math.min(.95, world.pitch + e.movementY * .0025));
   });
-  canvas.addEventListener('wheel', e => { e.preventDefault(); world.cameraDistance = Math.max(4, Math.min(10, world.cameraDistance + e.deltaY * .006)); }, { passive: false });
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (game.state !== 'playing' || e.deltaY === 0) return;
+    if (game.locked) {
+      const now = performance.now();
+      // A trackpad or fast wheel can emit a burst; avoid cycling past targets.
+      if (now - lastTargetWheel >= 180) { game.cycleTarget(e.deltaY); lastTargetWheel = now; }
+      return;
+    }
+    const pixels = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1);
+    world.cameraDistance = Math.max(4, Math.min(10, world.cameraDistance + pixels * .006));
+  }, { passive: false });
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && game.state === 'playing') pause(); });
   window.addEventListener('blur', pause);
   document.addEventListener('visibilitychange', () => { frameMeter.reset();setText('fps-value','—');setText('frame-time','— ms');if (document.hidden) pause(); });

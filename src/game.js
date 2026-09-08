@@ -81,6 +81,15 @@ export class Game {
     }
   }
   get target() { return this.enemies.find(e => e.id === this.locked && e.hp > 0); }
+  cycleTarget(step) {
+    if (this.state !== 'playing' || !this.target || !Number.isFinite(step) || step === 0) return;
+    // Keep roster order stable as enemies move; retain the current target out
+    // to the existing lock range, but acquire new targets only within 19m.
+    const candidates = this.enemies.filter(e => e.hp > 0 && distance(this.player, e) < (e.id === this.locked ? 23 : 19));
+    const index = candidates.findIndex(e => e.id === this.locked);
+    if (index < 0 || candidates.length < 2) return;
+    this.locked = candidates[(index + Math.sign(step) + candidates.length) % candidates.length].id;
+  }
   move(actor, dx, dz) {
     actor.x = clamp(actor.x + dx, -16.7 + actor.radius, 16.7 - actor.radius);
     actor.z = clamp(actor.z + dz, -19.7 + actor.radius, 19.7 - actor.radius);
