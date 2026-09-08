@@ -1,9 +1,13 @@
 import { Game } from './game.js';
 import { World } from './world.js';
 import { loadCharacterAssets } from './character.js';
+import { FrameMeter } from './performance.js';
 
 const $ = id => document.getElementById(id);
 const show = (id, visible = true) => $(id).classList.toggle('hidden', !visible);
+const setText = (id,value) => { const node=$(id),text=String(value);if(node.textContent!==text)node.textContent=text; };
+const frameMeter=new FrameMeter();
+let frameStats=null;
 const canvas = $('scene');
 let game = new Game(), world, last = performance.now(), elapsed = 0;
 let toastUntil = 0, bannerUntil = 0, hurtUntil = 0, helpReturn = 'menu';
@@ -73,13 +77,13 @@ function updateHUD() {
   const p = game.player;
   $('health').style.transform = $('health-lag').style.transform = `scaleX(${p.hp / 100})`;
   $('stamina').style.transform = `scaleX(${p.stamina / 100})`;
-  $('hp-label').textContent = `${Math.ceil(p.hp)} / 100`; $('flasks').textContent = p.flasks; $('souls').textContent = game.souls.toLocaleString();
+  setText('hp-label',`${Math.ceil(p.hp)} / 100`); setText('flasks',p.flasks); setText('souls',game.souls.toLocaleString());
   const boss = game.enemies.find(e => e.boss);
   show('boss', game.bossActive && boss.hp > 0);
   $('boss-fill').style.transform = $('boss-lag').style.transform = `scaleX(${boss.hp / boss.maxHp})`;
-  $('boss-phase').textContent = boss.phase === 2 ? 'SHADOW COMMUNION' : 'FIRE & JUDGMENT';
-  $('objective').textContent = game.won ? '誓約已盡 · 庭院重歸寂靜' : game.bossActive ? '擊敗雙誓教長' : '尋找庭院深處的雙誓教長';
-  $('combo').textContent = p.action === 'light' ? ['Ⅰ · 斜斬','Ⅱ · 反向斬','Ⅲ · 蓄力終結'][p.comboIndex || 0] : '';
+  setText('boss-phase',boss.phase === 2 ? 'SHADOW COMMUNION' : 'FIRE & JUDGMENT');
+  setText('objective',game.won ? '誓約已盡 · 庭院重歸寂靜' : game.bossActive ? '擊敗雙誓教長' : '尋找庭院深處的雙誓教長');
+  setText('combo',p.action === 'light' ? ['Ⅰ · 斜斬','Ⅱ · 反向斬','Ⅲ · 蓄力終結'][p.comboIndex || 0] : '');
   const target = game.target;
   if (target) {
     const pos = world.project(target, target.boss ? 2.4 : 1.55);
@@ -89,7 +93,7 @@ function updateHUD() {
     $('enemy-label').querySelector('b').style.transform = `scaleX(${target.hp / target.maxHp})`;
   } else { show('lock', false); show('enemy-label', false); }
   const prompt = game.state === 'playing' ? game.interaction() : '';
-  show('prompt', !!prompt); if (prompt) $('prompt').innerHTML = `<kbd>E</kbd>${prompt}`;
+  show('prompt', !!prompt); if (prompt && $('prompt').dataset.prompt!==prompt) { $('prompt').innerHTML = `<kbd>E</kbd>${prompt}`; $('prompt').dataset.prompt=prompt; }
   show('toast', elapsed < toastUntil); show('banner', elapsed < bannerUntil);
   $('hurt').style.opacity = elapsed < hurtUntil ? '.8' : '0';
 }
@@ -106,6 +110,12 @@ function handleEvents() {
   }
 }
 function frame(now) {
+  const sample=document.hidden?null:frameMeter.tick(now);
+  if(sample){
+    frameStats=sample;setText('fps-value',Math.round(sample.fps));setText('frame-time',`${sample.ms.toFixed(1)} ms`);
+    $('fps-meter').dataset.level=sample.fps<30?'low':sample.fps<50?'medium':'good';
+    if(game.state==='playing')world.adaptQuality(sample);
+  }
   const dt = Math.min((now - last) / 1000, .05); last = now; elapsed += dt;
   if (game.state === 'playing') {
     if (!game.target) world.yaw += (Number(keys.has('ArrowLeft')) - Number(keys.has('ArrowRight'))) * dt * 1.8;
@@ -121,6 +131,8 @@ function frame(now) {
 try {
   await loadCharacterAssets();
   world = new World(canvas);
+  await world.prepare(game);
+  $('quality').addEventListener('change',e=>world.setQuality(e.target.value));
   $('start').addEventListener('click', () => { game.start(); show('menu', false); show('hud'); sound.init(); requestMouse(); });
   $('resume').addEventListener('click', resume);
   $('menu-help').addEventListener('click', help); $('pause-help').addEventListener('click', help);
@@ -155,11 +167,11 @@ try {
   canvas.addEventListener('wheel', e => { e.preventDefault(); world.cameraDistance = Math.max(4, Math.min(10, world.cameraDistance + e.deltaY * .006)); }, { passive: false });
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && game.state === 'playing') pause(); });
   window.addEventListener('blur', pause);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+  document.addEventListener('visibilitychange', () => { frameMeter.reset();setText('fps-value','—');setText('frame-time','— ms');if (document.hidden) pause(); });
   window.addEventListener('resize', () => world.resize());
   canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); pause(); show('error'); $('error-message').textContent = '圖形裝置暫時中斷，請重新整理頁面後再試。'; });
   // Read-only instrumentation for smoke checks, also useful when reporting a bug.
-  window.ashfall = Object.freeze({ snapshot: () => ({ state: game.state, player: { ...game.player }, enemies: game.enemies.map(e => ({ ...e })), souls: game.souls, locked: game.locked, won: game.won, drawCalls: world.renderer.info.render.calls }) });
+  window.ashfall = Object.freeze({ snapshot: () => ({ state: game.state, player: { ...game.player }, enemies: game.enemies.map(e => ({ ...e })), souls: game.souls, locked: game.locked, won: game.won, drawCalls: world.renderer.info.render.calls, performance: frameStats, quality: world.quality, renderScale:world.renderer.getPixelRatio() }) });
   show('loading', false); show('menu'); requestAnimationFrame(frame);
 } catch (error) {
   console.error(error); show('loading', false); show('error');

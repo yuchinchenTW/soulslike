@@ -4,6 +4,8 @@ import { createKnight, animateKnight } from './character.js';
 import { RoomEnvironment } from '../node_modules/three/examples/jsm/environments/RoomEnvironment.js';
 import { attackMotion } from './motion.js';
 import { activeBossHands } from './pontiff.js';
+import { batchArchitecture } from './static-batches.js';
+import { AdaptiveResolution } from './performance.js';
 
 let seed = 381;
 function random() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
@@ -23,9 +25,10 @@ function ring(parent, material, x, y, z, radius, tube, arc = Math.PI * 2) { cons
 
 export class World {
   constructor(canvas) {
+    this.quality='auto';this.adaptive=new AdaptiveResolution();this.shadowTime=-Infinity;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate=false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace; this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.12;
     this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x718780); this.scene.fog = new THREE.FogExp2(0x718780, .025);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -39,14 +42,24 @@ export class World {
     this.scene.add(new THREE.HemisphereLight(0xd0e3d4, 0x465044, 2.5));
     const fill = new THREE.DirectionalLight(0xbad1d4, 1.7); fill.position.set(12, 14, 18); this.scene.add(fill);
     const sun = new THREE.DirectionalLight(0xffe4b0, 3.1); sun.position.set(-19, 34, -27); sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 29, bottom: -29, near: 1, far: 95 }); sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; this.scene.add(sun);
+    sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 29, bottom: -29, near: 1, far: 95 }); sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; this.scene.add(sun);
     this.actors = new Map(); this.effects = []; this.fireParts = []; this.flags = [];
     this.buildEnvironment(); this.buildFire(); this.buildAtmosphere(); this.resize();
+    batchArchitecture(this.scene,new Set([...this.flags,...this.fireParts.map(f=>f.mesh)]));
     this.dropMesh = new THREE.Group(); this.scene.add(this.dropMesh);
     const dropMat = new THREE.MeshBasicMaterial({ color: 0xa1d2bc, transparent: true, opacity: .65 });
     ring(this.dropMesh, dropMat, 0, .12, 0, .5, .025);
     this.dropBeam = cylinder(this.dropMesh, new THREE.MeshBasicMaterial({ color: 0x99bca5, transparent: true, opacity: .2, depthWrite: false }), 0, .65, 0, .035, .25, 1.3, 12);
     this.dropMesh.visible = false;
+  }
+  async prepare(game) {
+    this.syncActor('player',game.player,0,0,true);
+    for(const e of game.enemies)this.syncActor(e.id,e,0,0);
+    const echo=this.createActor('echo',false,false,true);
+    animateKnight(echo,{x:0,z:-13,angle:0,hp:100,action:'idle',timer:0,moving:0},0,0);
+    echo.root.visible=false;
+    // Compile the phantom's materials during loading, before combat starts.
+    await this.renderer.compileAsync(this.scene,this.camera);
   }
   buildEnvironment() {
     box(this.scene, dark, 0, -.62, 0, 37, .8, 46);
@@ -206,7 +219,7 @@ export class World {
       const active = state.hp > 0 && (hands.includes(blade.hand) || (clock && state.action !== 'roll' && state.timer >= clock.impact - .055 && state.timer < clock.activeEnd) || (state.action === 'swing' && state.timer < .24));
       for (const p of blade.trailPoints) p.age += dt;
       blade.trailPoints = blade.trailPoints.filter(p => p.age < .11);
-      if (active && dt > 0) blade.trailPoints.push({ tip: blade.tip.getWorldPosition(new THREE.Vector3()), heel: blade.heel.getWorldPosition(new THREE.Vector3()), age: 0 });
+      if (active && dt > 0) blade.trailPoints.push({ tip: new THREE.Vector3().setFromMatrixPosition(blade.tip.matrixWorld), heel: new THREE.Vector3().setFromMatrixPosition(blade.heel.matrixWorld), age: 0 });
       if (blade.trailPoints.length > 10) blade.trailPoints.shift();
       const positions = blade.trail.geometry.attributes.position; let n = 0;
       for (let i = 1; i < blade.trailPoints.length; i++) {
@@ -274,11 +287,24 @@ export class World {
       this.camera.lookAt(target ? new THREE.Vector3(p.x * .75 + target.x * .25, 1.65, p.z * .75 + target.z * .25) : focus);
       if (this.shake > 0) { this.camera.position.x += (random() - .5) * this.shake; this.camera.position.y += (random() - .5) * this.shake; this.shake = Math.max(0, this.shake - dt * .4); }
     }
+    if(elapsed<this.shadowTime||elapsed-this.shadowTime>=1/30){this.renderer.shadowMap.needsUpdate=true;this.shadowTime=elapsed;}
     this.renderer.render(this.scene, this.camera);
   }
   project(actor, height) {
     const p = new THREE.Vector3(actor.x, height, actor.z).project(this.camera);
     return { x: (p.x * .5 + .5) * innerWidth, y: (-p.y * .5 + .5) * innerHeight, visible: p.z > -1 && p.z < 1 && Math.abs(p.x) < 1 && Math.abs(p.y) < 1 };
   }
-  resize() { this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(innerWidth, innerHeight); }
+  resize() {
+    this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix();
+    // Keep high-DPI / 4K displays from multiplying fragment and shadow cost.
+    const scale=this.quality==='performance'?.65:this.quality==='high'?1:this.adaptive.scale;
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio,1,Math.sqrt(1920*1080/(innerWidth*innerHeight)))*scale);
+    this.renderer.setSize(innerWidth, innerHeight);
+  }
+  setQuality(mode){
+    if(!['auto','performance','high'].includes(mode))return;
+    this.quality=mode;this.adaptive=new AdaptiveResolution();
+    this.renderer.shadowMap.enabled=mode!=='performance';this.renderer.shadowMap.needsUpdate=true;this.resize();
+  }
+  adaptQuality(sample){if(this.quality==='auto'&&this.adaptive.sample(sample))this.resize();}
 }

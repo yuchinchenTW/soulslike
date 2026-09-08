@@ -1,6 +1,7 @@
 // Dual-sword attacks share a timeline with the renderer. Times in `clip` are
 // source-animation seconds; gameplay time may stretch a deliberate windup.
-const hit = (at, hand, damage, range, arc, travel) => ({ at, hand, damage, range, arc, travel });
+// Greatsword reach follows the extended blade; damage and timings stay the same.
+const hit = (at, hand, damage, range, arc, travel) => ({ at, hand, damage, range: range + 1.55, arc, travel });
 export const BOSS_MOVES = Object.freeze({
   procession: { clip: 'dual', duration: 3.65, recovery: 1.15,
     keys: [[0,0],[.82,.78],[1.27,1.11],[1.99,1.76],[2.23,1.89],[3.02,2.64],[3.65,3.63]],

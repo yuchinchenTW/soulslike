@@ -8,6 +8,31 @@ import { addRegalia } from './regalia.js';
 const cache = new Map();
 const boneName = name => `mixamorig${name}`;
 let props;
+const skinMatrix=new THREE.Matrix4(),worldSkin=new THREE.Matrix4(),boneMatrix=new THREE.Matrix4();
+// Cache bind-space samples once; per frame only the Y rows of bone matrices
+// are needed to preserve the same contact accuracy as full CPU skinning.
+function contactSamples(mesh,indices){
+  const g=mesh.geometry,p=new THREE.Vector3(),samples=[];
+  for(const i of indices){
+    p.fromBufferAttribute(g.attributes.position,i).applyMatrix4(mesh.bindMatrix);
+    const influences=[];
+    for(let k=0;k<4;k++){const weight=g.attributes.skinWeight.getComponent(i,k);if(weight)influences.push([g.attributes.skinIndex.getComponent(i,k),p.x*weight,p.y*weight,p.z*weight,weight]);}
+    samples.push(influences);
+  }
+  return {mesh,samples,rows:new Float64Array(mesh.skeleton.bones.length*4)};
+}
+function contactFloor(s){
+  const {mesh,rows,samples}=s,skeleton=mesh.skeleton;
+  worldSkin.multiplyMatrices(mesh.matrixWorld,mesh.bindMatrixInverse);
+  for(let i=0;i<skeleton.bones.length;i++){
+    boneMatrix.multiplyMatrices(skeleton.bones[i].matrixWorld,skeleton.boneInverses[i]);
+    skinMatrix.multiplyMatrices(worldSkin,boneMatrix);const e=skinMatrix.elements,j=i*4;
+    rows[j]=e[1];rows[j+1]=e[5];rows[j+2]=e[9];rows[j+3]=e[13];
+  }
+  let floor=Infinity;
+  for(const influences of samples){let y=0;for(const [bone,x,py,z,w]of influences){const i=bone*4;y+=rows[i]*x+rows[i+1]*py+rows[i+2]*z+rows[i+3]*w;}floor=Math.min(floor,y);}
+  return floor;
+}
 function extractProp(scene, name, jointName) {
   const source = scene.getObjectByName(name), bone = scene.getObjectByName(boneName(jointName));
   if (!source?.isSkinnedMesh || !bone) throw new Error(`Missing character equipment: ${name}`);
@@ -64,6 +89,15 @@ export function createKnight({boss=false,player=false,phantom=false}={}) {
     const swordGeometry=props.sword.geometry.clone(),glow=[];
     const direction=bladeTip.position.clone().normalize(),length=bladeTip.position.length();
     for(let i=0;i<vertices.count;i++){p.fromBufferAttribute(vertices,i);glow.push(THREE.MathUtils.smoothstep(p.dot(direction)/length,.25,.4));}
+    // Enlarge beyond the guard, preserving the grip's fit in the hand.
+    const guard=length*.22,bladePositions=swordGeometry.attributes.position;
+    function enlarge(point){
+      const along=point.dot(direction),extension=Math.max(0,along-guard)*1.8;
+      if(along>guard){point.addScaledVector(direction,-along).multiplyScalar(2.2).addScaledVector(direction,along+extension);}
+      return point;
+    }
+    for(let i=0;i<bladePositions.count;i++){p.fromBufferAttribute(bladePositions,i);enlarge(p);bladePositions.setXYZ(i,p.x,p.y,p.z);}
+    enlarge(bladeTip.position);swordGeometry.computeVertexNormals();swordGeometry.computeBoundingSphere();
     swordGeometry.setAttribute('bladeGlow',new THREE.Float32BufferAttribute(glow,1));
     function bladeMaterial(color){
       const m=new THREE.MeshStandardMaterial({color:0x8c8580,metalness:.75,roughness:.35,emissive:color,emissiveIntensity:1.8});
@@ -82,19 +116,16 @@ export function createKnight({boss=false,player=false,phantom=false}={}) {
     const magic=new THREE.Mesh(swordGeometry,bladeMaterial(0x7040ff));left.add(magic);magic.castShadow=true;
     const tip=bladeTip.clone(),heel=bladeHeel.clone();left.add(tip,heel);
     blades.push({tip,heel,hand:'left',color:0x9774ff,trailPoints:[]});
-    for(const [joint,color]of [[swordJoint,0xff7020],[left,0x9460ff]]){
-      const light=new THREE.PointLight(color,1.8,4,2);light.position.copy(bladeTip.position).multiplyScalar(.55);joint.add(light);
-    }
   }
   if(boss)addRegalia(root,model,height,bounds.min.y);
-  if(phantom)root.traverse(o=>{if(o.isMesh){o.material=o.material.clone();o.material.color.set(0x756bb1);o.material.emissive.set(0x514589);o.material.emissiveIntensity=.7;o.material.transparent=true;o.material.opacity=.38;o.material.depthWrite=false;o.castShadow=false;}});
+  if(phantom)root.traverse(o=>{if(o.isMesh){o.material=o.material.clone();o.material.color.set(0x756bb1);o.material.emissive.set(0x514589);o.material.emissiveIntensity=.7;o.material.transparent=true;o.material.opacity=.38;o.material.depthWrite=false;o.material.forceSinglePass=true;o.castShadow=false;o.receiveShadow=false;}});
   const mixer=new THREE.AnimationMixer(model),actions={};
   for(const [name,clip]of Object.entries(asset.clips)){const a=mixer.clipAction(clip);a.clampWhenFinished=true;a.setLoop(['idle','walk','run','block','backward','left','right'].includes(name)?THREE.LoopRepeat:THREE.LoopOnce,Infinity);actions[name]=a;}
   const tell=new THREE.Mesh(new THREE.TorusGeometry(boss?1.1:.9,.012,6,64),new THREE.MeshBasicMaterial({color:0xbc925e,transparent:true,opacity:0,depthWrite:false}));tell.rotation.x=Math.PI/2;tell.position.y=.026;root.add(tell);
   const contacts=['LeftFoot','RightFoot','LeftToeBase','RightToeBase','Head','LeftForeArm','RightForeArm','LeftLeg','RightLeg'].map(n=>({node:model.getObjectByName(boneName(n)),radius:n==='Head'?.11:.035}));
   const support=[];
   model.updateMatrixWorld(true);
-  model.traverse(o=>{if(o.isSkinnedMesh&&o.geometry.attributes.position.count>1500){const indices=[],a=o.geometry.attributes.position;for(let i=0;i<a.count;i+=Math.max(1,Math.floor(a.count/350)))indices.push(i);support.push({mesh:o,indices});}});
+  model.traverse(o=>{if(o.isSkinnedMesh&&o.geometry.attributes.position.count>1500){const indices=[],a=o.geometry.attributes.position;for(let i=0;i<a.count;i+=Math.max(1,Math.floor(a.count/350)))indices.push(i);support.push(contactSamples(o,indices));}});
   return {root,model,mixer,actions,asset,type,boss,player,phantom,tell,blade:blades[0],blades,swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y};
 }
 
@@ -113,6 +144,7 @@ function animationChoice(rig,state) {
   return'idle';
 }
 export function animateKnight(rig,state,dt,time) {
+  if(state.hp<=0&&rig.current==='death'&&rig.deathElapsed>=(rig.phantom?.55:3)&&!rig.player){rig.root.visible=false;return;}
   rig.root.position.set(state.x,0,state.z);rig.root.rotation.y=state.angle;
   const name=animationChoice(rig,state),action=rig.actions[name];
   if(rig.current!==name || rig.lastSerial!==state.actionSerial || (rig.lastState!==state.action&&['light','light2','light3','heavy','roll','heal','stagger'].includes(name))){
@@ -140,8 +172,8 @@ export function animateKnight(rig,state,dt,time) {
   rig.root.updateMatrixWorld(true);
   // Imported foot/toe contacts correct tiny rig-height differences while preserving mocap pelvis motion.
   if(name!=='death'){
-    let floor=Infinity;const p=new THREE.Vector3();
-    for(const s of rig.support){s.mesh.skeleton.update();for(const i of s.indices){p.fromBufferAttribute(s.mesh.geometry.attributes.position,i);s.mesh.applyBoneTransform(i,p);s.mesh.localToWorld(p);floor=Math.min(floor,p.y);}}
+    let floor=Infinity;
+    for(const s of rig.support)floor=Math.min(floor,contactFloor(s));
     if(name!=='roll'||floor<.006)rig.model.position.y+=(.006-floor)/rig.root.scale.x;
   }
   const windup=state.action==='bossAttack'&&state.timer<BOSS_MOVES[state.move].hits[0].at;
