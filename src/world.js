@@ -291,6 +291,13 @@ export class World {
     const l = rig.model.getObjectByName('mixamorigLeftUpLeg').getWorldPosition(new THREE.Vector3()), r = rig.model.getObjectByName('mixamorigRightUpLeg').getWorldPosition(new THREE.Vector3());
     return Math.atan2(r.z - l.z, l.x - r.x);
   }
+  // World-space yaw of an actor's head and the clip it is playing, for facing checks.
+  actorGaze(id) {
+    const rig = this.actors.get(id); if (!rig || !rig.headForward) return null;
+    const d = rig.headForward.clone().applyQuaternion(rig.head.getWorldQuaternion(new THREE.Quaternion()));
+    return Math.atan2(d.x, d.z);
+  }
+  actorClip(id) { return this.actors.get(id)?.current ?? null; }
   project(actor, height) {
     const p = new THREE.Vector3(actor.x, height, actor.z).project(this.camera);
     return { x: (p.x * .5 + .5) * innerWidth, y: (-p.y * .5 + .5) * innerHeight, visible: p.z > -1 && p.z < 1 && Math.abs(p.x) < 1 && Math.abs(p.y) < 1 };

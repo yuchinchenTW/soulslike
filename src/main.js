@@ -190,7 +190,7 @@ try {
   window.addEventListener('resize', () => world.resize());
   canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); pause(); show('error'); $('error-message').textContent = '圖形裝置暫時中斷，請重新整理頁面後再試。'; });
   // Read-only instrumentation for smoke checks, also useful when reporting a bug.
-  window.ashfall = Object.freeze({ snapshot: () => ({ state: game.state, player: { ...game.player }, enemies: game.enemies.map(e => ({ ...e })), souls: game.souls, locked: game.locked, won: game.won, facing: world.actorFacing('player'), drawCalls: world.renderer.info.render.calls, performance: frameStats, quality: world.quality, renderScale:world.renderer.getPixelRatio() }) });
+  window.ashfall = Object.freeze({ snapshot: () => ({ state: game.state, player: { ...game.player }, enemies: game.enemies.map(e => ({ ...e })), souls: game.souls, locked: game.locked, won: game.won, facing: world.actorFacing('player'), headFacing: world.actorGaze('player'), clip: world.actorClip('player'), drawCalls: world.renderer.info.render.calls, performance: frameStats, quality: world.quality, renderScale:world.renderer.getPixelRatio() }) });
   show('loading', false); show('menu'); requestAnimationFrame(frame);
 } catch (error) {
   console.error(error); show('loading', false); show('error');

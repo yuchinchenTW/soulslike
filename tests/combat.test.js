@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, CAMP, PILLARS, distance } from '../src/game.js';
+import { Game, CAMP, PILLARS, distance, angleTo, angleDelta } from '../src/game.js';
 import { MOTION } from '../src/motion.js';
 
 function play() { const g = new Game(); g.start(); return g; }
@@ -31,6 +31,26 @@ test('shield blocks in front, rear attacks bypass it, low stamina causes guard b
   g.hurt(20, { x: p.x, z: p.z - 1 }); assert.equal(p.hp, 78);
   p.invuln = 0; p.blocking = true; p.stamina = 2;
   g.hurt(20, { x: p.x, z: p.z + 1 }); assert.equal(p.hp, 58); assert.equal(p.stamina, 0); assert.equal(p.action, 'stagger');
+});
+
+test('unlocked guard preserves facing during forward, side and backward steps', () => {
+  const g=play(),p=g.player;p.angle=.7;
+  for(const [x,z]of [[1,0],[-1,0],[0,1],[0,-1]]){
+    tick(g,.2,{x,z,block:true,sprint:true});assert.equal(p.angle,.7);assert.equal(p.moving,2);
+  }
+  tick(g,.2,{x:1,z:0});assert.ok(Math.abs(p.angle-.7)>.1,'releasing guard restores normal movement-facing');
+});
+
+test('locked guard faces the enemy after strafing and after switching targets', () => {
+  const g=play(),p=g.player;Object.assign(p,{x:0,z:0,angle:0});
+  Object.assign(g.enemies[0],{x:0,z:-4,action:'stagger',timer:-100});
+  Object.assign(g.enemies[1],{x:4,z:0,action:'stagger',timer:-100});
+  g.locked=g.enemies[0].id;
+  for(const [x,z]of [[1,0],[-1,0],[0,1]]){
+    tick(g,.2,{x,z,block:true});assert.ok(Math.abs(angleDelta(p.angle,angleTo(p,g.target)))<1e-8);
+  }
+  g.cycleTarget(1);g.update(.01,{x:-1,z:0,block:true});assert.ok(Math.abs(angleDelta(p.angle,angleTo(p,g.target)))<1e-8);
+  const hp=p.hp;g.hurt(20,g.target);assert.equal(p.hp,hp-2,'the shield still blocks the enemy being faced');
 });
 
 test('healing has a delay and interrupted healing does not consume a flask', () => {

@@ -133,9 +133,12 @@ export class Game {
         this.move(p, dx / len * speed * dt, dz / len * speed * dt);
         p.moving = speed;
         p.moveX = dx / len; p.moveZ = dz / len;
-        if (!this.target) p.angle += angleDelta(Math.atan2(dx, dz), p.angle) * Math.min(1, dt * 16);
+        if (!this.target && !p.blocking) p.angle += angleDelta(Math.atan2(dx, dz), p.angle) * Math.min(1, dt * 16);
       }
-      if (this.target) p.angle += angleDelta(angleTo(p, this.target), p.angle) * Math.min(1, dt * 14);
+      if (this.target) {
+        if (p.blocking) p.angle = angleTo(p, this.target);
+        else p.angle += angleDelta(angleTo(p, this.target), p.angle) * Math.min(1, dt * 14);
+      }
     }
     if (p.regenDelay === 0 && (p.action === 'idle' || p.action === 'stagger')) p.stamina = Math.min(100, p.stamina + dt * (p.blocking ? 13 : 31));
     for (const e of [...this.enemies]) { if(this.state !== 'playing') break; this.updateEnemy(e, dt); }
@@ -146,6 +149,8 @@ export class Game {
       const d = distance(p, e), r = p.radius + e.radius;
       if (d < r) { const a = angleTo(e, p); this.move(p, Math.sin(a) * (r - d), Math.cos(a) * (r - d)); }
     }
+    // Enemy movement and separation can change the bearing during this frame.
+    if (p.blocking && this.target) p.angle = angleTo(p, this.target);
   }
   playerStrike(heavy) {
     const p = this.player;
