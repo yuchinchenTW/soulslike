@@ -75,5 +75,32 @@
       "path": "assets/animations/dual.fbx",
       "source": "https://huggingface.co/datasets/Linzhan/Mixamo-Animations-Characters/resolve/main/animation_motion/Dual_Weapon_Combo.fbx"
     }
-  ]
+  ],
+  "environment": {
+    "provider": "Poly Haven",
+    "license": "CC0 1.0",
+    "terms": "https://polyhaven.com/license",
+    "files": [
+      {
+        "path": "assets/textures/castle_wall_slates_*_1k.jpg",
+        "source": "https://polyhaven.com/a/castle_wall_slates",
+        "use": "walls, pillars, arches, trim"
+      },
+      {
+        "path": "assets/textures/large_grey_tiles_*_1k.jpg",
+        "source": "https://polyhaven.com/a/large_grey_tiles",
+        "use": "courtyard paving"
+      },
+      {
+        "path": "assets/textures/rock_wall_10_*_1k.jpg",
+        "source": "https://polyhaven.com/a/rock_wall_10",
+        "use": "plinths, roofs, doors, rubble"
+      },
+      {
+        "path": "assets/sky/qwantani_dusk_2_puresky_1k.hdr",
+        "source": "https://polyhaven.com/a/qwantani_dusk_2_puresky",
+        "use": "sky, environment lighting and reflections"
+      }
+    ]
+  }
 }

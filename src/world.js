@@ -6,12 +6,15 @@ import { attackMotion } from './motion.js';
 import { activeBossHands } from './pontiff.js';
 import { batchArchitecture } from './static-batches.js';
 import { AdaptiveResolution } from './performance.js';
+import { triplanar, loadSurfaces, loadSky } from './surfaces.js';
 
 let seed = 381;
 function random() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
-const stone = new THREE.MeshStandardMaterial({ color: 0x555d57, roughness: .96 });
-const trim = new THREE.MeshStandardMaterial({ color: 0x77796a, roughness: .87 });
-const dark = new THREE.MeshStandardMaterial({ color: 0x222c29, roughness: .88 });
+// Tints multiply the projected stone maps; scale is texture repeats per metre.
+const stone = triplanar(new THREE.MeshStandardMaterial({ color: 0xa9aea6, roughness: 1 }), .34);
+const trim = triplanar(new THREE.MeshStandardMaterial({ color: 0xcfc9b8, roughness: 1 }), .9);
+const dark = triplanar(new THREE.MeshStandardMaterial({ color: 0x4e5a57, roughness: 1 }), .5);
+const floor = triplanar(new THREE.MeshStandardMaterial({ color: 0x8d918a, roughness: 1 }), .42);
 const gold = new THREE.MeshStandardMaterial({ color: 0x9b8350, metalness: .65, roughness: .42 });
 const blackMetal = new THREE.MeshStandardMaterial({ color: 0x343e3c, metalness: .7, roughness: .44 });
 const swordMat = new THREE.MeshStandardMaterial({ color: 0xb7c5bf, metalness: .88, roughness: .25 });
@@ -29,8 +32,8 @@ export class World {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate=false;
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace; this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.12;
-    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x718780); this.scene.fog = new THREE.FogExp2(0x718780, .025);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace; this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1;
+    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0xa39fa8); this.scene.fog = new THREE.FogExp2(0xa39fa8, .014);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const room = new RoomEnvironment();
     this.environmentTarget = pmrem.fromScene(room, .04);
@@ -39,9 +42,9 @@ export class World {
     room.dispose(); pmrem.dispose();
     this.camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, .1, 180);
     this.yaw = 0; this.pitch = .25; this.cameraDistance = 6; this.shake = 0;
-    this.scene.add(new THREE.HemisphereLight(0xd0e3d4, 0x465044, 2.5));
-    const fill = new THREE.DirectionalLight(0xbad1d4, 1.7); fill.position.set(12, 14, 18); this.scene.add(fill);
-    const sun = new THREE.DirectionalLight(0xffe4b0, 3.1); sun.position.set(-19, 34, -27); sun.castShadow = true;
+    this.scene.add(new THREE.HemisphereLight(0xd0e3d4, 0x465044, 1.1));
+    const fill = new THREE.DirectionalLight(0xbad1d4, .9); fill.position.set(12, 14, 18); this.scene.add(fill);
+    const sun = new THREE.DirectionalLight(0xffe4b0, 3.4); sun.position.set(-19, 34, -27); sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 29, bottom: -29, near: 1, far: 95 }); sun.shadow.bias = -.0004; sun.shadow.normalBias = .03; this.scene.add(sun);
     this.actors = new Map(); this.effects = []; this.fireParts = []; this.flags = [];
     this.buildEnvironment(); this.buildFire(); this.buildAtmosphere(); this.resize();
@@ -58,19 +61,16 @@ export class World {
     const echo=this.createActor('echo',false,false,true);
     animateKnight(echo,{x:0,z:-13,angle:0,hp:100,action:'idle',timer:0,moving:0},0,0);
     echo.root.visible=false;
+    await Promise.all([loadSurfaces(this.renderer, { castle_wall_slates: [stone, trim], large_grey_tiles: [floor], rock_wall_10: [dark] }), loadSky(this.renderer, this.scene, { rotation: -2.3, blur: .04, background: .55, environment: .75 })]);
     // Compile the phantom's materials during loading, before combat starts.
     await this.renderer.compileAsync(this.scene,this.camera);
   }
   buildEnvironment() {
     box(this.scene, dark, 0, -.62, 0, 37, .8, 46);
-    // Repeated paving is instanced: a complete court in one draw call.
-    const tiles = new THREE.InstancedMesh(boxGeo, stone, 34 * 42);
-    tiles.receiveShadow = true; const temp = new THREE.Object3D(), color = new THREE.Color();
-    for (let iz = 0; iz < 42; iz++) for (let ix = 0; ix < 34; ix++) {
-      const i = iz * 34 + ix; temp.position.set(ix - 16.5, -.14 + random() * .025, iz - 20.5); temp.scale.set(.968, .22, .966); temp.rotation.y = (random() - .5) * .012; temp.updateMatrix(); tiles.setMatrixAt(i, temp.matrix);
-      color.setHSL(.15 + random() * .04, .035 + random() * .04, .22 + random() * .105); tiles.setColorAt(i, color);
-    }
-    this.scene.add(tiles);
+    // Flagstone paving: one projected plane replaces the instanced tile grid.
+    const paving = mesh(new THREE.PlaneGeometry(37, 46), floor, this.scene, 0, 0, 0);
+    paving.rotation.x = -Math.PI / 2; paving.castShadow = false;
+    const temp = new THREE.Object3D();
     // Old processional path and inlaid ritual circle.
     for (const x of [-3.3, 3.3]) box(this.scene, trim, x, -.008, 0, .065, .024, 41);
     const inlay = new THREE.MeshStandardMaterial({ color: 0x998c63, metalness: .3, roughness: .8 });

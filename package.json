@@ -1,12 +1,12 @@
 {
   "name": "ashfall-courtyard",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "An original third-person soulslike combat prototype",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check src/main.js && node --check src/world.js && node --check src/game.js && node --check src/character.js && node --check src/motion.js && node --check src/pontiff.js && node --check src/regalia.js && node --check src/static-batches.js && node --check src/performance.js",
+    "check": "node --check src/main.js && node --check src/world.js && node --check src/game.js && node --check src/character.js && node --check src/motion.js && node --check src/pontiff.js && node --check src/regalia.js && node --check src/static-batches.js && node --check src/performance.js && node --check src/surfaces.js",
     "test": "node --test tests/combat.test.js tests/motion.test.js tests/pontiff.test.js tests/performance.test.js"
   },
   "dependencies": {

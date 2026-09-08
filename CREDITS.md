@@ -22,6 +22,6 @@ Download/conversion provenance: Linzhan Mou's Mixamo Animations and Characters c
 
 Project adaptations: skeleton retargeting, scale normalization, palette and roughness adjustments, mirrored left-hand sword attachment, blade emission masks, skinned robe, crown, phantom materials, root-motion extraction, animation trimming, blending, and combat timing. `tools/build-character-clips.mjs` rebuilds the 16-clip local animation libraries from the downloaded FBX clips and GLB rigs.
 
-The environment, interface, gameplay and synthesized audio are project-created. No Dark Souls models, textures, animations or audio are included.
+The environment geometry, interface, gameplay and synthesized audio are project-created. Environment surfaces and sky use CC0 assets from Poly Haven (https://polyhaven.com/license): castle_wall_slates, large_grey_tiles and rock_wall_10 textures (1K diffuse, normal, ARM) and the qwantani_dusk_2_puresky HDRI (1K). They are projected in world space by `src/surfaces.js`. No Dark Souls models, textures, animations or audio are included.
 
 Three.js is MIT licensed; see `node_modules/three/LICENSE`.
