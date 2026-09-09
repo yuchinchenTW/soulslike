@@ -14,11 +14,10 @@ let toastUntil = 0, bannerUntil = 0, hurtUntil = 0, helpReturn = 'menu';
 let hitStop = 0;
 const keys = new Set();
 let rightMouse = false, dragged = false;
-// A guard press released within this many ms is a parry tap. Latched on the
-// input event so a quick tap registers even when it falls between frames.
-let guardDownAt = 0, parryQueued = false;
-const guardDown = () => { guardDownAt = performance.now(); };
-const guardUp = () => { if (guardDownAt && performance.now() - guardDownAt < 200) parryQueued = true; guardDownAt = 0; };
+// Pressing the guard button sweeps the shield (parry); keeping it held settles
+// into a block. Latched on the input event so a press between frames counts.
+let parryQueued = false;
+const guardDown = () => { parryQueued = true; };
 let lastTargetWheel = -Infinity;
 
 class Sound {
@@ -50,6 +49,7 @@ class Sound {
     if (type === 'hit') { this.noise(.14, .65); this.tone(130, .16, 'triangle', .5, 45); }
     if (type === 'hurt') { this.noise(.2, .6); this.tone(76, .4, 'sawtooth', .3, 30); }
     if (type === 'block') { this.tone(730, .3, 'triangle', .25, 200); this.noise(.08, .5); }
+    if (type === 'parryStart') this.noise(.16, .22);
     if (type === 'parry') { this.tone(1480, .35, 'triangle', .3, 420); this.tone(2200, .18, 'sine', .12, 900); this.noise(.06, .6); }
     if (type === 'riposte') { this.noise(.2, .4); this.tone(110, .3, 'sawtooth', .25, 50); }
     if (['heal', 'rest', 'kill'].includes(type)) { this.tone(330, .6, 'sine', .18, 660); this.tone(495, .8, 'sine', .12, 990); }
@@ -63,7 +63,7 @@ function banner(title, subtitle, seconds = 3.5) { $('banner').querySelector('h2'
 function requestMouse() {
   try { const result = canvas.requestPointerLock?.(); result?.catch?.(() => toast('可按住滑鼠拖曳或使用方向鍵旋轉視角')); } catch { toast('使用方向鍵旋轉視角'); }
 }
-function clearInput() { keys.clear(); rightMouse = false; dragged = false; lastTargetWheel = -Infinity; guardDownAt = 0; parryQueued = false; }
+function clearInput() { keys.clear(); rightMouse = false; dragged = false; lastTargetWheel = -Infinity; parryQueued = false; }
 function pause() {
   if (game.state !== 'playing') return;
   game.state = 'paused'; clearInput(); show('pause'); document.exitPointerLock?.();
@@ -160,7 +160,7 @@ try {
     const actions = { Space: 'roll', KeyJ: 'light', KeyR: 'heavy', KeyQ: 'lock', KeyF: 'heal', KeyE: 'interact' };
     if (actions[e.code]) game.trigger(actions[e.code], direction());
   });
-  document.addEventListener('keyup', e => { if (e.code === 'KeyK') guardUp(); keys.delete(e.code); });
+  document.addEventListener('keyup', e => keys.delete(e.code));
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   canvas.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
   canvas.addEventListener('mousedown', e => {
@@ -175,7 +175,7 @@ try {
     if (e.button === 2) { rightMouse = true; guardDown(); }
     dragged = true;
   });
-  document.addEventListener('mouseup', e => { if (e.button === 2) { rightMouse = false; guardUp(); } dragged = false; });
+  document.addEventListener('mouseup', e => { if (e.button === 2) rightMouse = false; dragged = false; });
   document.addEventListener('mousemove', e => {
     if (game.state !== 'playing' || game.target || !(document.pointerLockElement === canvas || dragged)) return;
     world.yaw -= e.movementX * .003; world.pitch = Math.max(-.04, Math.min(.95, world.pitch + e.movementY * .0025));

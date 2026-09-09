@@ -118,13 +118,11 @@ export class Game {
     if (this.locked && (!this.target || distance(p, this.target) > 23)) this.locked = null;
     // Holding the guard button blocks; a short tap (released before a hit was
     // blocked) sweeps the shield in a parry instead.
-    if (input.parry && !p.guardHit && p.action === 'idle') this.trigger('parry');
-    if (input.block) p.guardHeld = (p.guardHeld || 0) + dt;
-    else {
-      if (p.guardHeld > 0 && p.guardHeld < .2 && !p.guardHit && p.action === 'idle') this.trigger('parry');
-      p.guardHeld = 0; p.guardHit = false;
-    }
-    p.blocking = !!input.block && p.action === 'idle' && p.stamina > 0;
+    if (input.parry) this.trigger('parry');
+    // Still holding the guard when the parry window closes: settle into a block.
+    if (p.action === 'parry' && input.block && p.timer >= MOTION.parry.windowEnd) this.setAction('idle', 0);
+    const guarding = p.action === 'idle' || (p.action === 'parry' && p.timer < MOTION.parry.windowStart);
+    p.blocking = !!input.block && guarding && p.stamina > 0;
     p.moving = 0; p.moveX = 0; p.moveZ = 0;
     if (p.action === 'riposte') {
       const step = travel('riposte', p.timer, MOTION.riposte) - travel('riposte', previousTime, MOTION.riposte);
@@ -250,7 +248,7 @@ export class Game {
     if (p.blocking && front) {
       const cost = amount * 1.35;
       p.regenDelay = 1;
-      if (p.stamina >= cost) { p.stamina -= cost; p.guardHit = true; p.hp = Math.max(1, p.hp - Math.round(amount * .08)); this.emit('block', { x: p.x, z: p.z }); return true; }
+      if (p.stamina >= cost) { p.stamina -= cost; p.hp = Math.max(1, p.hp - Math.round(amount * .08)); this.emit('block', { x: p.x, z: p.z }); return true; }
       p.stamina = 0; p.blocking = false; this.emit('toast', { text: '防禦崩潰' });
     }
     p.hp = Math.max(0, p.hp - amount); p.invuln = .48;

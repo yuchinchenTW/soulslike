@@ -249,9 +249,10 @@ export function animateKnight(rig,state,dt,time) {
   rig.model.position.y=rig.baseY;
   rig.root.updateMatrixWorld(true);
   if(state.action==='parry'&&rig.leftArm){
-    const swing=Math.sin(Math.PI*Math.min(1,state.timer/MOTION.parry.duration));
-    rotateBoneWorld(rig.leftArm,_up,swing*1.15);
-    rotateBoneWorld(rig.leftArm,_right.set(1,0,0).applyQuaternion(rig.root.quaternion),-swing*.55);
+    const swing=Math.sin(Math.PI*Math.min(1,state.timer/.62));
+    rotateBoneWorld(rig.leftArm,_up,swing*1.5);
+    rotateBoneWorld(rig.leftArm,_right.set(1,0,0).applyQuaternion(rig.root.quaternion),-swing*.8);
+    if(rig.spine)rotateBoneWorld(rig.spine,_up,swing*.35);
     rig.root.updateMatrixWorld(true);
   }
   if(rig.facingWeight>.001&&rig.spine&&rig.leftShoulder&&rig.rightShoulder&&rig.neck&&rig.head){
