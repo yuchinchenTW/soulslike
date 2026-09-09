@@ -1,5 +1,5 @@
 // Combat simulation stays independent of rendering so damage and timing can be checked.
-import { MOTION, LIGHT_COMBO, attackMotion, travel } from './motion.js';
+import { MOTION, LIGHT_COMBO, attackMotion, travel, parriedDuration, parriedTravel } from './motion.js';
 import { updatePontiff } from './pontiff.js';
 export const CAMP = { x: -4, z: 14 };
 export const PILLARS = [-13, 13].flatMap(x => [-15, -5, 5, 15].map(z => ({ x, z, r: 1.05 })));
@@ -54,7 +54,9 @@ export class Game {
     }
     if (action === 'parry') {
       if (!this.spend(MOTION.parry.stamina)) return;
-      this.setAction('parry', MOTION.parry.duration); p.blocking = false; this.emit('parryStart');
+      this.setAction('parry', MOTION.parry.duration); p.blocking = false;
+      if (this.target) p.angle = angleTo(p, this.target);
+      this.emit('parryStart');
       return;
     }
     const open = action === 'light' && this.enemies.find(e => e.action === 'parried' && e.hp > 0 && distance(p, e) < 2.4 + e.radius && Math.abs(angleDelta(angleTo(p, e), p.angle)) < 1.3);
@@ -116,13 +118,10 @@ export class Game {
     const previousTime = p.timer;
     p.timer += dt; p.invuln = Math.max(0, p.invuln - dt); p.regenDelay = Math.max(0, p.regenDelay - dt);
     if (this.locked && (!this.target || distance(p, this.target) > 23)) this.locked = null;
-    // Holding the guard button blocks; a short tap (released before a hit was
-    // blocked) sweeps the shield in a parry instead.
+    // Only a released tap requests a parry. Holding never starts one or cuts
+    // its recovery short; the next guard starts when the action is complete.
     if (input.parry) this.trigger('parry');
-    // Still holding the guard when the parry window closes: settle into a block.
-    if (p.action === 'parry' && input.block && p.timer >= MOTION.parry.windowEnd) this.setAction('idle', 0);
-    const guarding = p.action === 'idle' || (p.action === 'parry' && p.timer < MOTION.parry.windowStart);
-    p.blocking = !!input.block && guarding && p.stamina > 0;
+    p.blocking = !!input.block && p.action === 'idle' && p.stamina > 0;
     p.moving = 0; p.moveX = 0; p.moveZ = 0;
     if (p.action === 'riposte') {
       const step = travel('riposte', p.timer, MOTION.riposte) - travel('riposte', previousTime, MOTION.riposte);
@@ -150,6 +149,8 @@ export class Game {
     }
     if (p.action !== 'idle' && p.timer >= p.duration) this.setAction('idle', 0);
     if (this.buffered && p.action === 'idle') { const queued=this.buffered; this.buffered=null; if(this.time<=queued.until)this.trigger(queued.action,queued.direction); }
+    p.blocking = !!input.block && p.action === 'idle' && p.stamina > 0;
+    if (p.action === 'parry' && this.target) p.angle = angleTo(p, this.target);
     if (p.action === 'idle') {
       const dx = input.x || 0, dz = input.z || 0, len = Math.hypot(dx, dz);
       if (len > .01) {
@@ -176,7 +177,7 @@ export class Game {
       if (d < r) { const a = angleTo(e, p); this.move(p, Math.sin(a) * (r - d), Math.cos(a) * (r - d)); }
     }
     // Enemy movement and separation can change the bearing during this frame.
-    if (p.blocking && this.target) p.angle = angleTo(p, this.target);
+    if ((p.blocking || p.action === 'parry') && this.target) p.angle = angleTo(p, this.target);
   }
   playerStrike(heavy) {
     const p = this.player;
@@ -202,11 +203,15 @@ export class Game {
   updateEnemy(e, dt) {
     e.flash = Math.max(0, e.flash - dt); e.moving = 0;
     if (e.hp <= 0) return;
+    if (e.action === 'parried') {
+      const step=parriedTravel(e,e.timer+dt)-parriedTravel(e,e.timer);
+      this.move(e,(e.recoilX||0)*step,(e.recoilZ||0)*step);
+    }
     if (e.boss || e.phantom) { updatePontiff(this, e, dt); return; }
     e.timer += dt; e.cooldown -= dt;
     const p = this.player, d = distance(e, p);
     if (e.action === 'stagger') { if (e.timer > .55) { e.action = 'idle'; e.cooldown = .65; } return; }
-    if (e.action === 'parried') { if (e.timer > 2.2) { e.action = 'idle'; e.cooldown = .9; } return; }
+    if (e.action === 'parried') { if (e.timer >= parriedDuration(e)) { e.action = 'idle'; e.timer = 0; e.cooldown = .9; } return; }
     if (e.action === 'windup') {
       if (e.timer < e.windup * .52) e.angle += angleDelta(angleTo(e, p), e.angle) * Math.min(1, dt * 7);
       if (e.timer >= e.windup) { e.action = 'swing'; e.timer = 0; e.hit = false; this.emit('enemySwing', { boss: e.boss }); }
@@ -241,18 +246,21 @@ export class Game {
     const front = Math.abs(angleDelta(angleTo(p, attacker), p.angle)) < 1.25;
     if (p.action === 'parry' && front && ['swing', 'bossAttack'].includes(attacker.action) && p.timer >= MOTION.parry.windowStart && p.timer <= MOTION.parry.windowEnd) {
       attacker.action = 'parried'; attacker.timer = 0; attacker.hit = true; attacker.move = null;
-      p.duration = Math.min(p.duration, p.timer + .28); p.stamina = Math.min(100, p.stamina + 8);
+      attacker.pending = null; attacker.moving = 0; attacker.actionSerial = (attacker.actionSerial || 0) + 1;
+      const recoil=angleTo(p,attacker);attacker.recoilX=Math.sin(recoil);attacker.recoilZ=Math.cos(recoil);
+      p.stamina = Math.min(100, p.stamina + 8);
       this.emit('parry', { x: p.x, z: p.z, boss: attacker.boss });
       return true;
     }
     if (p.blocking && front) {
+      p.guardHitSerial = (p.guardHitSerial || 0) + 1;
       const cost = amount * 1.35;
       p.regenDelay = 1;
       if (p.stamina >= cost) { p.stamina -= cost; p.hp = Math.max(1, p.hp - Math.round(amount * .08)); this.emit('block', { x: p.x, z: p.z }); return true; }
       p.stamina = 0; p.blocking = false; this.emit('toast', { text: '防禦崩潰' });
     }
     p.hp = Math.max(0, p.hp - amount); p.invuln = .48;
-    this.setAction('stagger', .48); this.emit('hurt', { amount });
+    p.blocking = false; this.setAction('stagger', .48); this.emit('hurt', { amount });
     if (p.hp === 0) {
       if (this.souls > 0) this.drop = { x: p.x, z: p.z, amount: this.souls };
       else this.drop = null;

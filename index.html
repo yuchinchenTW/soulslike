@@ -11,7 +11,7 @@
 </head>
 <body>
   <canvas id="scene" aria-label="灰燼之庭 3D 遊戲畫面"></canvas>
-  <aside id="fps-meter" aria-label="遊戲效能"><div><b id="fps-value">—</b><span>FPS</span><small id="frame-time">— ms</small></div><label>畫質 <select id="quality" aria-label="畫質"><option value="auto">自動</option><option value="performance">流暢</option><option value="high">精緻</option></select></label><small class="fps-build">v0.6.0</small></aside>
+  <aside id="fps-meter" aria-label="遊戲效能"><div><b id="fps-value">—</b><span>FPS</span><small id="frame-time">— ms</small></div><label>畫質 <select id="quality" aria-label="畫質"><option value="auto">自動</option><option value="performance">流暢</option><option value="high">精緻</option></select></label><small class="fps-build">v0.6.3</small></aside>
   <div class="vignette"></div><div class="grain"></div><div id="hurt"></div>
   <div id="loading"><span class="sigil">♜</span><p>正在喚醒灰燼…</p></div>
   <main id="menu" class="screen hidden">
@@ -24,7 +24,7 @@
       <button id="start" class="primary"><span>踏入灰燼</span><small>BEGIN JOURNEY</small><b>⟶</b></button>
       <p class="menu-note">3D 第三人稱動作原型 · 建議使用鍵盤與滑鼠</p>
     </section>
-    <div class="menu-bottom"><span>每一次倒下，都讓下一步更堅定。</span><button id="menu-help" class="text-button">操作指南 <b>↗</b></button><span class="build">DUAL VOWS / v0.6.0</span></div>
+    <div class="menu-bottom"><span>每一次倒下，都讓下一步更堅定。</span><button id="menu-help" class="text-button">操作指南 <b>↗</b></button><span class="build">DUAL VOWS / v0.6.3</span></div>
   </main>
   <div id="hud" class="hidden">
     <div class="vitals"><div class="crest">♜<span>Ⅰ</span></div><div class="bars"><div class="bar health"><i id="health-lag"></i><b id="health"></b></div><div class="bar stamina"><b id="stamina"></b></div><div class="vital-caption"><span>餘燼行者</span><span id="hp-label">100 / 100</span></div></div></div>
@@ -39,7 +39,7 @@
     <div id="banner" class="hidden"><h2></h2><p></p></div>
   </div>
   <section id="pause" class="overlay hidden"><div class="panel"><p class="eyebrow">A MOMENT OF RESPITE</p><h2>暫歇於灰燼</h2><p>旅途暫停。準備好再向前。</p><button id="resume" class="primary">繼續旅程 <b>⟶</b></button><button id="pause-help" class="secondary">操作指南</button><button id="sound" class="text-button">音效：開啟</button></div></section>
-  <section id="help" class="overlay hidden"><div class="panel help-panel"><p class="eyebrow">KNOW YOUR BLADE</p><h2>行者指南</h2><div class="control-grid"><span>移動</span><kbd>W A S D</kbd><span>旋轉視角</span><kbd>滑鼠 / ← →</kbd><span>輕攻擊 / 重攻擊</span><kbd>左鍵或 J / R</kbd><span>持盾防禦 / 盾反</span><kbd>按住右鍵或 K / 點按</kbd><span>翻滾 / 奔跑</span><kbd>Space / 按住 Shift</kbd><span>鎖定 / 解除鎖定</span><kbd>中鍵 / Q</kbd><span>切換鎖定敵人</span><kbd>滾輪上 / 下</kbd><span>使用餘火瓶</span><kbd>F</kbd><span>篝火休息 / 拾回餘燼</span><kbd>E</kbd><span>暫停 / 音效</span><kbd>Esc / M</kbd></div><p class="help-tip">攻擊、翻滾與格擋消耗體力。留意敵人舉劍蓄力，在揮擊時翻滾避開，或在劍落下的瞬間點按右鍵盾反，再以輕攻擊處決。篝火恢復補給，也會讓守衛重生。</p><button id="close-help" class="primary">我準備好了 <b>⟶</b></button></div></section>
+  <section id="help" class="overlay hidden"><div class="panel help-panel"><p class="eyebrow">KNOW YOUR BLADE</p><h2>行者指南</h2><div class="control-grid"><span>移動</span><kbd>W A S D</kbd><span>旋轉視角</span><kbd>滑鼠 / ← →</kbd><span>輕攻擊 / 重攻擊</span><kbd>左鍵或 J / R</kbd><span>持盾防禦 / 盾反</span><kbd>按住右鍵或 K / 短按放開</kbd><span>翻滾 / 奔跑</span><kbd>Space / 按住 Shift</kbd><span>鎖定 / 解除鎖定</span><kbd>中鍵 / Q</kbd><span>切換鎖定敵人</span><kbd>滾輪上 / 下</kbd><span>使用餘火瓶</span><kbd>F</kbd><span>篝火休息 / 拾回餘燼</span><kbd>E</kbd><span>暫停 / 音效</span><kbd>Esc / M</kbd></div><p class="help-tip">右鍵短按放開後揮盾盾反，持續按住則維持防禦。抓準敵人出劍時機揮盾，成功後收盾，再以輕攻擊處決。攻擊、翻滾與格擋消耗體力；篝火恢復補給，也會讓守衛重生。</p><button id="close-help" class="primary">我準備好了 <b>⟶</b></button></div></section>
   <section id="death" class="overlay hidden"><div class="panel death-panel"><p class="eyebrow">THE EMBERS REMAIN</p><h2>你已倒下</h2><p>餘燼留在倒下之處。篝火仍為你燃燒。</p><button id="respawn" class="primary">於篝火重生 <b>⟶</b></button></div></section>
   <section id="victory" class="overlay hidden"><div class="panel victory-panel"><p class="eyebrow">VOW FULFILLED</p><h2>誓約已盡</h2><p>守誓者終得安息。你為這座庭院帶來了黎明。</p><div class="reward">✦ <span>1,000 餘燼</span></div><button id="continue" class="primary">留在庭院 <b>⟶</b></button><button id="restart" class="secondary">重新挑戰</button></div></section>
   <div id="error" class="overlay hidden"><div class="panel"><h2>無法啟動遊戲</h2><p id="error-message"></p></div></div>

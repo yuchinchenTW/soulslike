@@ -1,3 +1,4 @@
+import { parriedDuration } from './motion.js';
 // Dual-sword attacks share a timeline with the renderer. Times in `clip` are
 // source-animation seconds; gameplay time may stretch a deliberate windup.
 // Greatsword reach follows the extended blade; damage and timings stay the same.
@@ -39,7 +40,7 @@ function summon(game,boss) {
 }
 export function updatePontiff(game,e,dt) {
   const p=game.player;const previous=e.timer;e.timer+=dt;e.cooldown-=dt;
-  if(e.action==='parried'){if(e.timer>=1.4){e.action='recover';e.timer=0;e.recovery=.45;}return;}
+  if(e.action==='parried'){if(e.timer>=parriedDuration(e)){e.action='recover';e.timer=0;e.recovery=.45;}return;}
   if(e.phantom){
     if(game.won||game.enemies.find(b=>b.boss)?.hp<=0){e.hp=0;e.action='dead';return;}
     if(e.action!=='bossAttack'&&e.action!=='recover')return;
@@ -75,6 +76,7 @@ export function updatePontiff(game,e,dt) {
       const h=m.hits[e.hitIndex++];
       game.emit('enemySwing',{boss:true});game.emit('enemySlash',{x:e.x,z:e.z,hand:h.hand,boss:true});
       if(dist(e,p)<h.range&&Math.abs(delta(facing(e,p),e.angle))<h.arc)game.hurt(e.phantom?Math.round(h.damage*.55):h.damage,e);
+      if(e.action==='parried')return;
     }
     if(e.timer>=m.duration){e.action='recover';e.timer=0;e.recovery=m.recovery;}
     return;

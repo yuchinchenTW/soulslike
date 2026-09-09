@@ -2,6 +2,7 @@ import { Game } from './game.js';
 import { World } from './world.js';
 import { loadCharacterAssets } from './character.js';
 import { FrameMeter } from './performance.js';
+import { GuardInput } from './guard-input.js';
 
 const $ = id => document.getElementById(id);
 const show = (id, visible = true) => $(id).classList.toggle('hidden', !visible);
@@ -13,11 +14,8 @@ let game = new Game(), world, last = performance.now(), elapsed = 0;
 let toastUntil = 0, bannerUntil = 0, hurtUntil = 0, helpReturn = 'menu';
 let hitStop = 0;
 const keys = new Set();
-let rightMouse = false, dragged = false;
-// Pressing the guard button sweeps the shield (parry); keeping it held settles
-// into a block. Latched on the input event so a press between frames counts.
-let parryQueued = false;
-const guardDown = () => { parryQueued = true; };
+let dragged = false;
+const guardInput = new GuardInput();
 let lastTargetWheel = -Infinity;
 
 class Sound {
@@ -63,7 +61,7 @@ function banner(title, subtitle, seconds = 3.5) { $('banner').querySelector('h2'
 function requestMouse() {
   try { const result = canvas.requestPointerLock?.(); result?.catch?.(() => toast('可按住滑鼠拖曳或使用方向鍵旋轉視角')); } catch { toast('使用方向鍵旋轉視角'); }
 }
-function clearInput() { keys.clear(); rightMouse = false; dragged = false; lastTargetWheel = -Infinity; parryQueued = false; }
+function clearInput() { keys.clear(); guardInput.reset(); dragged = false; lastTargetWheel = -Infinity; }
 function pause() {
   if (game.state !== 'playing') return;
   game.state = 'paused'; clearInput(); show('pause'); document.exitPointerLock?.();
@@ -111,6 +109,7 @@ function handleEvents() {
     if (e.type === 'toast') toast(e.text);
     if (e.type === 'banner') banner(e.title, e.subtitle);
     if (e.type === 'hurt') hurtUntil = elapsed + .23;
+    if (e.type === 'parry') toast('盾反成功 · 敵人失衡，收盾後輕攻擊處決', 1.4);
     if (e.type === 'hit') hitStop = e.boss ? .055 : .04;
     if (e.type === 'bossAwake') toast('雙誓教長已甦醒', 3);
     if (e.type === 'death') { clearInput(); show('death'); document.exitPointerLock?.(); }
@@ -129,7 +128,7 @@ function frame(now) {
     if (!game.target) world.yaw += (Number(keys.has('ArrowLeft')) - Number(keys.has('ArrowRight'))) * dt * 1.8;
     const d = direction();
     if (hitStop > 0) hitStop = Math.max(0, hitStop - dt);
-    else { game.update(dt, { ...d, block: rightMouse || keys.has('KeyK'), parry: parryQueued, sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') }); parryQueued = false; }
+    else game.update(dt, { ...d, block: guardInput.held, parry: guardInput.consume(), sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') });
   }
   handleEvents();
   world.update(game, dt, elapsed, game.state === 'menu');
@@ -152,7 +151,7 @@ try {
   document.addEventListener('keydown', e => {
     if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     if (e.repeat) return;
-    if (e.code === 'KeyK' && !keys.has('KeyK') && game.state === 'playing') guardDown();
+    if (e.code === 'KeyK' && game.state === 'playing') guardInput.down('keyboard', performance.now(), game.player);
     keys.add(e.code);
     if (e.code === 'Escape') { if (!$('help').classList.contains('hidden')) { show('help', false); if (helpReturn === 'playing') show('pause'); } else pause(); return; }
     if (e.code === 'KeyM') { sound.enabled = !sound.enabled; $('sound').textContent = `音效：${sound.enabled ? '開啟' : '關閉'}`; toast(`音效已${sound.enabled ? '開啟' : '關閉'}`); }
@@ -160,7 +159,7 @@ try {
     const actions = { Space: 'roll', KeyJ: 'light', KeyR: 'heavy', KeyQ: 'lock', KeyF: 'heal', KeyE: 'interact' };
     if (actions[e.code]) game.trigger(actions[e.code], direction());
   });
-  document.addEventListener('keyup', e => keys.delete(e.code));
+  document.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'KeyK') guardInput.up('keyboard', performance.now(), game.player); });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   canvas.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
   canvas.addEventListener('mousedown', e => {
@@ -172,10 +171,10 @@ try {
     }
     if (game.state !== 'playing') return;
     if (e.button === 0) game.trigger('light');
-    if (e.button === 2) { rightMouse = true; guardDown(); }
+    if (e.button === 2) guardInput.down('mouse', performance.now(), game.player);
     dragged = true;
   });
-  document.addEventListener('mouseup', e => { if (e.button === 2) rightMouse = false; dragged = false; });
+  document.addEventListener('mouseup', e => { if (e.button === 2) guardInput.up('mouse', performance.now(), game.player); dragged = false; });
   document.addEventListener('mousemove', e => {
     if (game.state !== 'playing' || game.target || !(document.pointerLockElement === canvas || dragged)) return;
     world.yaw -= e.movementX * .003; world.pitch = Math.max(-.04, Math.min(.95, world.pitch + e.movementY * .0025));

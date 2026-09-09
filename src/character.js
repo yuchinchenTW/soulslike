@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from '../node_modules/three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from '../node_modules/three/examples/jsm/utils/SkeletonUtils.js';
 import { MOTION, attackMotion } from './motion.js';
+import { buildShieldClips, parryPose } from './shield-motion.js';
 import { BOSS_MOVES, bossClipTime } from './pontiff.js';
 import { addRegalia } from './regalia.js';
 
@@ -45,8 +46,9 @@ function extractProp(scene, name, jointName) {
 // Guarding while moving has no clip of its own: the shield pose is held on the
 // upper body while each locomotion clip keeps driving the hips and legs.
 const LOWER_BODY=/Hips|Leg|Foot|Toe/;
-function guardClips(clips){
+function guardClips(scene,clips){
   if(!clips.block)return clips;
+  buildShieldClips(scene,clips,GUARD_BLADE);
   const held=clips.block.tracks.filter(t=>!LOWER_BODY.test(t.name)).map(t=>{const v=t.createInterpolant().evaluate(.5);return new t.constructor(t.name,[0],Array.from(v));});
   for(const move of ['walk','backward','left','right']){
     const base=clips[move];if(!base)continue;
@@ -82,7 +84,7 @@ export async function loadCharacterAssets() {
     if(!response.ok)throw new Error(`Could not load ${type} animation library`);
     const data=await response.json();
     gltf.scene.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;o.frustumCulled=false;const materials=Array.isArray(o.material)?o.material:[o.material];for(const mat of materials){mat.envMapIntensity=.55;mat.roughness=Math.max(.6,mat.roughness);if(mat.map)mat.map.anisotropy=4;}}});
-    cache.set(type,{scene:gltf.scene,clips:guardClips(bakeStances(gltf.scene,Object.fromEntries(Object.entries(data.clips).map(([n,c])=>[n,THREE.AnimationClip.parse(c)])))),metadata:data.metadata});
+    cache.set(type,{scene:gltf.scene,clips:guardClips(gltf.scene,bakeStances(gltf.scene,Object.fromEntries(Object.entries(data.clips).map(([n,c])=>[n,THREE.AnimationClip.parse(c)])))),metadata:data.metadata});
   }));
   const warden=cache.get('warden').scene;
   // The source conversion labels meshes out of order; these are verified by geometry and skin weights.
@@ -160,13 +162,14 @@ export function createKnight({boss=false,player=false,phantom=false}={}) {
   // In the bind pose the head looks down the model's +Z; remember that axis in head space.
   const headBone=model.getObjectByName(boneName('Head')),headForward=new THREE.Vector3(0,0,1).applyQuaternion(headBone.getWorldQuaternion(new THREE.Quaternion()).invert());
   model.traverse(o=>{if(o.isSkinnedMesh&&o.geometry.attributes.position.count>1500){const indices=[],a=o.geometry.attributes.position;for(let i=0;i<a.count;i+=Math.max(1,Math.floor(a.count/350)))indices.push(i);support.push(contactSamples(o,indices));}});
-  return {root,model,mixer,actions,asset,type,boss,player,phantom,tell,blade:blades[0],blades,swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y,facingWeight:0,neck:model.getObjectByName(boneName('Neck')),head:headBone,headForward,spine:model.getObjectByName(boneName('Spine')),leftArm:model.getObjectByName(boneName('LeftArm')),leftShoulder:model.getObjectByName(boneName('LeftShoulder')),rightShoulder:model.getObjectByName(boneName('RightShoulder'))};
+  const poseBones=['Spine','Neck','Head'].map(n=>({bone:model.getObjectByName(boneName(n)),rotation:new THREE.Quaternion()}));
+  return {root,model,mixer,actions,asset,type,boss,player,phantom,tell,blade:blades[0],blades,swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y,facingWeight:0,guardWeight:0,poseBones,hasBasePose:false,neck:model.getObjectByName(boneName('Neck')),head:headBone,headForward,spine:model.getObjectByName(boneName('Spine')),leftArm:model.getObjectByName(boneName('LeftArm')),leftShoulder:model.getObjectByName(boneName('LeftShoulder')),rightShoulder:model.getObjectByName(boneName('RightShoulder'))};
 }
 
 // In stance and guard clips the torso and gaze are steered onto the character's
 // facing every frame, so a locked enemy is squarely faced while the hips and
 // steps keep their animation. The weight eases in and out across clip changes.
-const FACING_CLIPS=/^(idle|block|left|right|block_\w+)$/;
+const FACING_CLIPS=/^(idle|block|parry|left|right|block_\w+)$/;
 const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
 // The shield sits about 35 degrees to the left of the chest, so a squared torso
 // reads as facing left. While guarding the torso blades right so the shield
@@ -186,12 +189,6 @@ export function createSwordProp(length){
 }
 const _up=new THREE.Vector3(0,1,0),_qa=new THREE.Quaternion(),_qb=new THREE.Quaternion(),_qc=new THREE.Quaternion();
 const _leftShoulder=new THREE.Vector3(),_rightShoulder=new THREE.Vector3(),_headDir=new THREE.Vector3();
-const _right=new THREE.Vector3();
-function rotateBoneWorld(bone,axis,angle){
-  const parent=bone.parent.getWorldQuaternion(_qa);
-  bone.quaternion.premultiply(_qc.copy(parent).invert().multiply(_qb.setFromAxisAngle(axis,angle)).multiply(parent));
-  bone.updateWorldMatrix(false,false);
-}
 function yawBone(bone,yaw){
   const parent=bone.parent.getWorldQuaternion(_qa);
   bone.quaternion.premultiply(_qc.copy(parent).invert().multiply(_qb.setFromAxisAngle(_up,yaw)).multiply(parent));
@@ -203,8 +200,8 @@ function locomotion(state){
 }
 function animationChoice(rig,state) {
   if(state.hp<=0)return'death';
-  if(state.action==='parried')return'stagger';
-  if(state.action==='parry')return'block';
+  if(state.action==='parried')return rig.boss?'parried_boss':'parried';
+  if(state.action==='parry')return'parry';
   if(state.action==='riposte')return'heavy';
   if(state.action==='light')return state.attackClip||'light';
   if(state.action==='bossAttack'||(rig.boss&&state.action==='recover'&&state.move))return BOSS_MOVES[state.move].clip;
@@ -222,6 +219,9 @@ export function animateKnight(rig,state,dt,time) {
   rig.root.rotation.y=state.angle;
   // Guarding squares up at once; other stances ease in and out across clip changes.
   if(state.blocking&&!rig.boss)rig.facingWeight=1;else rig.facingWeight+=((!rig.boss&&FACING_CLIPS.test(name)?1:0)-rig.facingWeight)*Math.min(1,dt*12);
+  if(state.blocking)rig.guardWeight=1;else rig.guardWeight+=((state.action==='parry'?1:0)-rig.guardWeight)*Math.min(1,dt*12);
+  const gesture=state.action==='parry'?parryPose(state.timer):null;
+  rig.gestureTwist=gesture?gesture.hip+gesture.spine+gesture.chest:(rig.gestureTwist||0)*Math.max(0,1-dt*12);
   if(rig.current!==name || rig.lastSerial!==state.actionSerial || (rig.lastState!==state.action&&['light','light2','light3','heavy','roll','heal','stagger'].includes(name))){
     const previous=rig.current&&rig.actions[rig.current];action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
     if(previous&&previous!==action)previous.crossFadeTo(action,name==='roll'?.07:.13,false);
@@ -240,27 +240,26 @@ export function animateKnight(rig,state,dt,time) {
   else if(state.action==='riposte')action.time=Math.min(duration-.001,state.timer/MOTION.riposte.duration*duration);
   else if(['light','light2','light3','heavy'].includes(name))action.time=Math.min(duration-.001,state.timer/attackMotion(state).duration*duration);
   else if(name==='heal')action.time=2.15+Math.min(1,state.timer/1.3)*2.35;
-  else if(state.action==='parried')action.time=Math.min(duration-.001,state.timer/.7*duration);
-  else if(state.action==='parry')action.time=.5;
+  else if(state.action==='parried')action.time=Math.min(duration-.001,state.timer);
+  else if(state.action==='parry')action.time=Math.min(duration-.001,state.timer);
   else if(name==='stagger')action.time=Math.min(duration-.001,state.timer/.48*duration);
   else {const gait=name.replace('block_','');const speed=gait==='walk'?Math.max(.6,state.moving/1.8):gait==='run'?Math.max(.8,state.moving/4.4):name.startsWith('block_')?.8:1;action.time=(rig.elapsed*speed)%duration;}
   // The combat clock selects the exact frame; the mixer only performs cross-fades.
+  // The mixer skips writes when sampled values are unchanged. Restore its
+  // unmodified pose before sampling so procedural offsets never accumulate,
+  // including repeated frames during hit-stop or a pause.
+  if(rig.hasBasePose)for(const p of rig.poseBones)p.bone.quaternion.copy(p.rotation);
   action.paused=true;rig.mixer.update(dt);
+  for(const p of rig.poseBones)p.rotation.copy(p.bone.quaternion);
+  rig.hasBasePose=true;
   rig.model.position.y=rig.baseY;
   rig.root.updateMatrixWorld(true);
-  if(state.action==='parry'&&rig.leftArm){
-    const swing=Math.sin(Math.PI*Math.min(1,state.timer/.62));
-    rotateBoneWorld(rig.leftArm,_up,swing*1.5);
-    rotateBoneWorld(rig.leftArm,_right.set(1,0,0).applyQuaternion(rig.root.quaternion),-swing*.8);
-    if(rig.spine)rotateBoneWorld(rig.spine,_up,swing*.35);
-    rig.root.updateMatrixWorld(true);
-  }
   if(rig.facingWeight>.001&&rig.spine&&rig.leftShoulder&&rig.rightShoulder&&rig.neck&&rig.head){
     // Torso: turn the spine until the shoulder line squares up with the facing.
     _leftShoulder.setFromMatrixPosition(rig.leftShoulder.matrixWorld);
     _rightShoulder.setFromMatrixPosition(rig.rightShoulder.matrixWorld);
     const torso=Math.atan2(_rightShoulder.z-_leftShoulder.z,_leftShoulder.x-_rightShoulder.x);
-    yawBone(rig.spine,wrapAngle(state.angle-(state.blocking?GUARD_BLADE:0)-torso)*rig.facingWeight);rig.root.updateMatrixWorld(true);
+    yawBone(rig.spine,wrapAngle(state.angle-GUARD_BLADE*rig.guardWeight+rig.gestureTwist-torso)*rig.facingWeight);rig.root.updateMatrixWorld(true);
     // Gaze: share the remaining turn between neck and head, capped to a natural range.
     _headDir.copy(rig.headForward).applyQuaternion(rig.head.getWorldQuaternion(_qa));
     const gaze=THREE.MathUtils.clamp(wrapAngle(state.angle-Math.atan2(_headDir.x,_headDir.z)),-1.2,1.2)*rig.facingWeight;
@@ -273,8 +272,8 @@ export function animateKnight(rig,state,dt,time) {
     if(name!=='roll'||floor<.006)rig.model.position.y+=(.006-floor)/rig.root.scale.x;
   }
   const windup=state.action==='bossAttack'&&state.timer<BOSS_MOVES[state.move].hits[0].at;
-  rig.tell.visible=(state.action==='windup'||windup||state.action==='summon')&&state.hp>0;
-  if(rig.tell.visible){rig.tell.material.color.set(state.action==='summon'?0x9974ee:0xbc925e);rig.tell.scale.setScalar(state.action==='summon'?3.6/(1.1*rig.root.scale.x):1);rig.tell.material.opacity=.12+Math.min(1,state.timer/(state.windup||1.2))*.3;}
+  rig.tell.visible=(state.action==='windup'||windup||state.action==='summon'||state.action==='parried')&&state.hp>0;
+  if(rig.tell.visible){rig.tell.material.color.set(state.action==='parried'?0xffe4a1:state.action==='summon'?0x9974ee:0xbc925e);rig.tell.scale.setScalar(state.action==='summon'?3.6/(1.1*rig.root.scale.x):1);rig.tell.material.opacity=state.action==='parried'?.65:.12+Math.min(1,state.timer/(state.windup||1.2))*.3;}
   rig.root.visible=state.hp>0||rig.player||rig.deathElapsed<(rig.phantom?.55:3);
   rig.root.updateMatrixWorld(true);
 }

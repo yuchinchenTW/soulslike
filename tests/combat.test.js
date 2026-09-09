@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, CAMP, PILLARS, distance, angleTo, angleDelta } from '../src/game.js';
-import { MOTION } from '../src/motion.js';
+import { MOTION, parriedDuration } from '../src/motion.js';
 
 function play() { const g = new Game(); g.start(); return g; }
 function tick(g, seconds, input = {}) { for (let t = 0; t < seconds; t += .01) g.update(.01, input); }
@@ -125,26 +125,47 @@ test('target cycling preserves actions and does not acquire targets while unlock
   g.state='paused';g.cycleTarget(-1);assert.equal(g.locked,'sentinel-b');
 });
 
-test('pressing guard parries inside the window, holding settles into a block, a late parry takes the hit', () => {
+test('a released tap parries inside the window and a late parry takes the hit', () => {
   const g = play(), p = g.player; Object.assign(p, { x: 0, z: 0, angle: 0 });
   const e = g.enemies[0]; Object.assign(e, { x: 0, z: 1.5, angle: Math.PI, action: 'idle', cooldown: 100 });
   Object.assign(g.enemies[1], { x: 60, z: 60 }); // keep the other sentinel out of the fight
-  g.update(.01, { block: true, parry: true }); assert.equal(p.action, 'parry', 'the press starts a parry');
+  g.update(.01, { parry: true }); assert.equal(p.action, 'parry', 'the released tap starts a parry');
   assert.equal(p.stamina, 100 - MOTION.parry.stamina);
-  tick(g, MOTION.parry.windowStart + .02, { block: true });
+  tick(g, MOTION.parry.windowStart + .02);
   Object.assign(e, { action: 'swing', timer: 0, hit: false });
   const hp = p.hp; g.hurt(19, e);
   assert.equal(p.hp, hp, 'deflected attacks do no damage');
   assert.equal(e.action, 'parried'); assert.ok(g.events.some(ev => ev.type === 'parry'));
+  assert.equal(p.duration,MOTION.parry.duration,'success must not cut off the shield return');
   tick(g, 1, {}); assert.equal(e.action, 'parried', 'the sentinel stays open'); tick(g, 1.5, {}); assert.equal(e.action, 'idle');
-  // Holding through the window turns the parry into a block; movement resumes.
-  g.update(.01, { block: true, parry: true }); tick(g, MOTION.parry.windowEnd + .02, { block: true });
+  // Re-pressing during a parry cannot cut off its recovery into a block.
+  g.update(.01, { parry: true }); tick(g, MOTION.parry.windowEnd + .02, { block: true });
+  assert.equal(p.action,'parry'); assert.equal(p.blocking,false);
+  tick(g,MOTION.parry.duration,{block:true});
   assert.equal(p.action, 'idle'); assert.equal(p.blocking, true);
   tick(g, .2, { block: true, x: 1, z: 0 }); assert.equal(p.moving, 2, 'guarded movement works after the flick');
   // A parry whose window has passed leaves the player open once released.
-  Object.assign(e, { action: 'idle', cooldown: 100 }); tick(g, 1, {}); g.update(.01, { block: true, parry: true }); tick(g, MOTION.parry.windowEnd + .05, {});
+  Object.assign(e, { action: 'idle', cooldown: 100 }); tick(g, 1, {}); g.update(.01, { parry: true }); tick(g, MOTION.parry.windowEnd + .05, {});
   assert.equal(p.action, 'parry'); Object.assign(e, { action: 'swing', timer: 0, hit: false });
   g.hurt(19, e); assert.equal(p.hp, hp - 19); assert.equal(e.action, 'swing');
+});
+
+test('parry startup, rear strikes and non-weapon bursts cannot be deflected',()=>{
+  for(const [time,rear,action]of [[.02,false,'swing'],[.2,true,'swing'],[.2,false,'summon']]){
+    const g=play(),p=g.player;p.angle=0;g.trigger('parry');p.timer=time;
+    g.hurt(20,{x:p.x,z:p.z+(rear?-1:1),action});
+    assert.equal(p.hp,80);assert.equal(p.action,'stagger');assert.equal(p.blocking,false);
+  }
+});
+
+test('parry faces the locked target and interrupts boss and phantom weapon attacks',()=>{
+  for(const phantom of [false,true]){
+    const g=play(),p=g.player,e=g.enemies[2];Object.assign(p,{x:0,z:0,angle:0});
+    Object.assign(e,{x:2,z:0,action:'bossAttack',move:'procession',timer:.7,phantom});g.locked=e.id;
+    g.trigger('parry');assert.equal(p.angle,angleTo(p,e));p.timer=.2;
+    g.hurt(25,e);assert.equal(e.action,'parried');assert.equal(e.move,null);assert.equal(p.hp,100);
+    e.x=1;e.z=1;g.update(.01);assert.equal(p.angle,angleTo(p,e));
+  }
 });
 
 test('a light attack on a parried enemy becomes a critical riposte', () => {
@@ -158,4 +179,22 @@ test('a light attack on a parried enemy becomes a critical riposte', () => {
   g.trigger('light'); tick(g, MOTION.riposte.impact + .02, {});
   assert.equal(boss.hp, bossHp - MOTION.riposte.bossDamage);
   tick(g, .6, {}); assert.equal(boss.action, 'parried', 'the boss is still open'); tick(g, .7, {}); assert.ok(['recover', 'idle'].includes(boss.action), 'the boss recovers after 1.4 s');
+});
+
+test('actual enemy weapon contact enters lasting parry stun and stops the remaining combo',()=>{
+  for(const type of ['sentinel','boss','phantom']){
+    const g=play(),p=g.player;Object.assign(p,{x:0,z:0,angle:0});
+    for(const e of g.enemies)Object.assign(e,{x:60,z:60});
+    const e=type==='sentinel'?g.enemies[0]:type==='boss'?g.enemies[2]:{...g.enemies[2],id:'echo',boss:false,phantom:true};
+    if(type==='phantom')g.enemies.push(e);
+    Object.assign(e,{x:0,z:1.5,angle:Math.PI,action:type==='sentinel'?'swing':'bossAttack',timer:type==='sentinel'?.125:.815,move:type==='sentinel'?null:'procession',hit:false,hitIndex:0,actionSerial:4});
+    g.trigger('parry');p.timer=.2;g.update(.01);
+    assert.equal(e.action,'parried');assert.equal(e.actionSerial,5);assert.equal(e.move,null);assert.equal(e.moving,0);
+    const start={x:e.x,z:e.z},swings=g.events.filter(ev=>ev.type==='enemySwing').length;
+    tick(g,parriedDuration(e)-.3);
+    assert.equal(e.action,'parried');assert.equal(p.hp,100);
+    assert.ok(distance(e,start)>.15&&distance(e,start)<.4,'a short backward recovery step stays in riposte range');
+    assert.equal(g.events.filter(ev=>ev.type==='enemySwing').length,swings,'no continuation of the deflected combo');
+    g.trigger('light');assert.equal(p.action,'riposte','the stunned enemy remains available for a critical attack');
+  }
 });
