@@ -39,6 +39,7 @@ function summon(game,boss) {
 }
 export function updatePontiff(game,e,dt) {
   const p=game.player;const previous=e.timer;e.timer+=dt;e.cooldown-=dt;
+  if(e.action==='parried'){if(e.timer>=1.4){e.action='recover';e.timer=0;e.recovery=.45;}return;}
   if(e.phantom){
     if(game.won||game.enemies.find(b=>b.boss)?.hp<=0){e.hp=0;e.action='dead';return;}
     if(e.action!=='bossAttack'&&e.action!=='recover')return;

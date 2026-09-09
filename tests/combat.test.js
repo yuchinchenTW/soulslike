@@ -124,3 +124,36 @@ test('target cycling preserves actions and does not acquire targets while unlock
   g.cycleTarget(1);assert.equal(g.locked,'sentinel-b');assert.equal(g.player.actionSerial,serial);assert.equal(g.player.stamina,stamina);
   g.state='paused';g.cycleTarget(-1);assert.equal(g.locked,'sentinel-b');
 });
+
+test('a guard tap parries inside the window, a hold blocks, and a late parry takes the hit', () => {
+  const g = play(), p = g.player; Object.assign(p, { x: 0, z: 0, angle: 0 });
+  const e = g.enemies[0]; Object.assign(e, { x: 0, z: 1.5, angle: Math.PI, action: 'idle', cooldown: 100 });
+  tick(g, .1, { block: true }); assert.equal(p.blocking, true);
+  tick(g, .02, {}); assert.equal(p.action, 'parry', 'a short tap starts a parry');
+  assert.equal(p.stamina, 100 - MOTION.parry.stamina);
+  tick(g, MOTION.parry.windowStart + .02, {});
+  Object.assign(e, { action: 'swing', timer: 0, hit: false });
+  const hp = p.hp; g.hurt(19, e);
+  assert.equal(p.hp, hp, 'deflected attacks do no damage');
+  assert.equal(e.action, 'parried'); assert.ok(g.events.some(ev => ev.type === 'parry'));
+  tick(g, 1, {}); assert.equal(e.action, 'parried', 'the sentinel stays open'); tick(g, 1.5, {}); assert.equal(e.action, 'idle');
+  // Holding the guard long enough never parries.
+  tick(g, .4, { block: true }); tick(g, .05, {}); assert.equal(p.action, 'idle');
+  // A parry that misses the window leaves the player open.
+  tick(g, .1, { block: true }); tick(g, .02, {}); assert.equal(p.action, 'parry');
+  tick(g, MOTION.parry.windowEnd + .05, {}); Object.assign(e, { action: 'swing', timer: 0, hit: false });
+  g.hurt(19, e); assert.equal(p.hp, hp - 19); assert.equal(e.action, 'swing');
+});
+
+test('a light attack on a parried enemy becomes a critical riposte', () => {
+  const g = play(), p = g.player; Object.assign(p, { x: 0, z: 0, angle: 0 });
+  const e = g.enemies[0]; Object.assign(e, { x: 0, z: 1.4, angle: Math.PI, action: 'parried', timer: 0, hp: 90, cooldown: 100 });
+  g.trigger('light'); assert.equal(p.action, 'riposte');
+  tick(g, MOTION.riposte.impact + .02, {});
+  assert.equal(e.hp, 0, 'the riposte finishes a sentinel'); assert.ok(g.events.some(ev => ev.type === 'hit' && ev.critical));
+  tick(g, MOTION.riposte.duration, {}); assert.equal(p.action, 'idle');
+  const boss = g.enemies[2]; Object.assign(boss, { x: 0, z: 1.8, angle: Math.PI, action: 'parried', timer: 0 }); const bossHp = boss.hp;
+  g.trigger('light'); tick(g, MOTION.riposte.impact + .02, {});
+  assert.equal(boss.hp, bossHp - MOTION.riposte.bossDamage);
+  tick(g, .6, {}); assert.equal(boss.action, 'parried', 'the boss is still open'); tick(g, .7, {}); assert.ok(['recover', 'idle'].includes(boss.action), 'the boss recovers after 1.4 s');
+});

@@ -28,7 +28,7 @@ export class Game {
   setAction(action, duration) {
     const p = this.player;
     if (action === 'idle' && p.action === 'light') p.comboUntil = this.time + .65;
-    if (['heavy','roll','heal','stagger','dead'].includes(action)) { p.comboUntil = 0; p.comboIndex = -1; }
+    if (['heavy','roll','heal','stagger','dead','parry','riposte'].includes(action)) { p.comboUntil = 0; p.comboIndex = -1; }
     Object.assign(p, { action, duration, timer: 0, hit: false, actionSerial: (p.actionSerial || 0) + 1 });
   }
   canAct() { return this.state === 'playing' && this.player.action === 'idle'; }
@@ -50,6 +50,17 @@ export class Game {
     }
     if (!this.canAct()) {
       if (['light','heavy','roll'].includes(action) && ['light','heavy','roll'].includes(p.action) && p.duration - p.timer <= .38) this.buffered = {action,direction,until:this.time + p.duration - p.timer + .1};
+      return;
+    }
+    if (action === 'parry') {
+      if (!this.spend(MOTION.parry.stamina)) return;
+      this.setAction('parry', MOTION.parry.duration); p.blocking = false; this.emit('parryStart');
+      return;
+    }
+    const open = action === 'light' && this.enemies.find(e => e.action === 'parried' && e.hp > 0 && distance(p, e) < 2.4 + e.radius && Math.abs(angleDelta(angleTo(p, e), p.angle)) < 1.3);
+    if (open) {
+      p.angle = angleTo(p, open); p.riposteTarget = open.id; p.hit = false;
+      this.setAction('riposte', MOTION.riposte.duration); p.blocking = false; this.emit('riposte', { x: open.x, z: open.z, boss: open.boss });
       return;
     }
     if (action === 'light' || action === 'heavy') {
@@ -105,8 +116,25 @@ export class Game {
     const previousTime = p.timer;
     p.timer += dt; p.invuln = Math.max(0, p.invuln - dt); p.regenDelay = Math.max(0, p.regenDelay - dt);
     if (this.locked && (!this.target || distance(p, this.target) > 23)) this.locked = null;
+    // Holding the guard button blocks; a short tap (released before a hit was
+    // blocked) sweeps the shield in a parry instead.
+    if (input.parry && !p.guardHit && p.action === 'idle') this.trigger('parry');
+    if (input.block) p.guardHeld = (p.guardHeld || 0) + dt;
+    else {
+      if (p.guardHeld > 0 && p.guardHeld < .2 && !p.guardHit && p.action === 'idle') this.trigger('parry');
+      p.guardHeld = 0; p.guardHit = false;
+    }
     p.blocking = !!input.block && p.action === 'idle' && p.stamina > 0;
     p.moving = 0; p.moveX = 0; p.moveZ = 0;
+    if (p.action === 'riposte') {
+      const step = travel('riposte', p.timer, MOTION.riposte) - travel('riposte', previousTime, MOTION.riposte);
+      this.move(p, Math.sin(p.angle) * step, Math.cos(p.angle) * step);
+      if (p.timer >= MOTION.riposte.impact && !p.hit) {
+        p.hit = true; const e = this.enemies.find(e => e.id === p.riposteTarget);
+        this.emit('slash', { x: p.x, z: p.z, angle: p.angle, heavy: true });
+        if (e && e.hp > 0) this.damageEnemy(e, e.boss ? MOTION.riposte.bossDamage : MOTION.riposte.damage, true);
+      }
+    }
     if (p.action === 'roll') {
       const step = travel('roll', p.timer) - travel('roll', previousTime);
       this.move(p, p.rollX * step, p.rollZ * step);
@@ -157,16 +185,20 @@ export class Game {
     this.emit('slash', { x: p.x, z: p.z, angle: p.angle, heavy });
     for (const e of this.enemies) {
       if (e.hp <= 0 || distance(p, e) > (heavy ? 2.1 : 1.9) + e.radius * .3 || Math.abs(angleDelta(angleTo(p, e), p.angle)) > (heavy ? 1.2 : 1.05)) continue;
-      const damage = heavy ? 55 : attackMotion(p)?.damage || 30;
-      e.hp = Math.max(0, e.hp - damage); e.flash = .18;
-      this.emit('hit', { x: e.x, z: e.z, boss: e.boss });
-      if (!e.boss && !e.phantom && e.hp > 0) { e.action = 'stagger'; e.timer = 0; }
-      if (e.hp === 0) {
-        e.action = 'dead'; e.deathTime = this.time; this.souls += e.phantom ? 0 : e.boss ? 1000 : 100;
-        if (this.locked === e.id) this.locked = null;
-        this.emit('kill', { x: e.x, z: e.z, boss: e.boss });
-        if (e.boss) { this.dismissPhantom(); this.won = true; this.bossActive = false; this.emit('victory'); }
-      }
+      this.damageEnemy(e, heavy ? 55 : attackMotion(p)?.damage || 30);
+    }
+  }
+  damageEnemy(e, amount, critical = false) {
+    const parried = e.action === 'parried';
+    const damage = Math.round(critical ? amount : parried ? amount * 1.5 : amount);
+    e.hp = Math.max(0, e.hp - damage); e.flash = critical ? .3 : .18;
+    this.emit('hit', { x: e.x, z: e.z, boss: e.boss, critical });
+    if (!e.boss && !e.phantom && e.hp > 0 && !parried) { e.action = 'stagger'; e.timer = 0; }
+    if (e.hp === 0) {
+      e.action = 'dead'; e.deathTime = this.time; this.souls += e.phantom ? 0 : e.boss ? 1000 : 100;
+      if (this.locked === e.id) this.locked = null;
+      this.emit('kill', { x: e.x, z: e.z, boss: e.boss });
+      if (e.boss) { this.dismissPhantom(); this.won = true; this.bossActive = false; this.emit('victory'); }
     }
   }
   updateEnemy(e, dt) {
@@ -176,6 +208,7 @@ export class Game {
     e.timer += dt; e.cooldown -= dt;
     const p = this.player, d = distance(e, p);
     if (e.action === 'stagger') { if (e.timer > .55) { e.action = 'idle'; e.cooldown = .65; } return; }
+    if (e.action === 'parried') { if (e.timer > 2.2) { e.action = 'idle'; e.cooldown = .9; } return; }
     if (e.action === 'windup') {
       if (e.timer < e.windup * .52) e.angle += angleDelta(angleTo(e, p), e.angle) * Math.min(1, dt * 7);
       if (e.timer >= e.windup) { e.action = 'swing'; e.timer = 0; e.hit = false; this.emit('enemySwing', { boss: e.boss }); }
@@ -208,10 +241,16 @@ export class Game {
     const p = this.player;
     if (p.hp <= 0 || p.invuln > 0 || (p.action === 'roll' && p.timer >= MOTION.roll.invulnerableStart && p.timer <= MOTION.roll.invulnerableEnd)) return false;
     const front = Math.abs(angleDelta(angleTo(p, attacker), p.angle)) < 1.25;
+    if (p.action === 'parry' && front && ['swing', 'bossAttack'].includes(attacker.action) && p.timer >= MOTION.parry.windowStart && p.timer <= MOTION.parry.windowEnd) {
+      attacker.action = 'parried'; attacker.timer = 0; attacker.hit = true; attacker.move = null;
+      p.duration = Math.min(p.duration, p.timer + .28); p.stamina = Math.min(100, p.stamina + 8);
+      this.emit('parry', { x: p.x, z: p.z, boss: attacker.boss });
+      return true;
+    }
     if (p.blocking && front) {
       const cost = amount * 1.35;
       p.regenDelay = 1;
-      if (p.stamina >= cost) { p.stamina -= cost; p.hp = Math.max(1, p.hp - Math.round(amount * .08)); this.emit('block', { x: p.x, z: p.z }); return true; }
+      if (p.stamina >= cost) { p.stamina -= cost; p.guardHit = true; p.hp = Math.max(1, p.hp - Math.round(amount * .08)); this.emit('block', { x: p.x, z: p.z }); return true; }
       p.stamina = 0; p.blocking = false; this.emit('toast', { text: '防禦崩潰' });
     }
     p.hp = Math.max(0, p.hp - amount); p.invuln = .48;

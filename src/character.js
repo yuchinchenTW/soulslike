@@ -160,7 +160,7 @@ export function createKnight({boss=false,player=false,phantom=false}={}) {
   // In the bind pose the head looks down the model's +Z; remember that axis in head space.
   const headBone=model.getObjectByName(boneName('Head')),headForward=new THREE.Vector3(0,0,1).applyQuaternion(headBone.getWorldQuaternion(new THREE.Quaternion()).invert());
   model.traverse(o=>{if(o.isSkinnedMesh&&o.geometry.attributes.position.count>1500){const indices=[],a=o.geometry.attributes.position;for(let i=0;i<a.count;i+=Math.max(1,Math.floor(a.count/350)))indices.push(i);support.push(contactSamples(o,indices));}});
-  return {root,model,mixer,actions,asset,type,boss,player,phantom,tell,blade:blades[0],blades,swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y,facingWeight:0,neck:model.getObjectByName(boneName('Neck')),head:headBone,headForward,spine:model.getObjectByName(boneName('Spine')),leftShoulder:model.getObjectByName(boneName('LeftShoulder')),rightShoulder:model.getObjectByName(boneName('RightShoulder'))};
+  return {root,model,mixer,actions,asset,type,boss,player,phantom,tell,blade:blades[0],blades,swordMesh,shieldMesh,contacts,support,trailPoints:[],current:null,elapsed:0,deathElapsed:0,lastState:null,baseY:-bounds.min.y,facingWeight:0,neck:model.getObjectByName(boneName('Neck')),head:headBone,headForward,spine:model.getObjectByName(boneName('Spine')),leftArm:model.getObjectByName(boneName('LeftArm')),leftShoulder:model.getObjectByName(boneName('LeftShoulder')),rightShoulder:model.getObjectByName(boneName('RightShoulder'))};
 }
 
 // In stance and guard clips the torso and gaze are steered onto the character's
@@ -186,6 +186,12 @@ export function createSwordProp(length){
 }
 const _up=new THREE.Vector3(0,1,0),_qa=new THREE.Quaternion(),_qb=new THREE.Quaternion(),_qc=new THREE.Quaternion();
 const _leftShoulder=new THREE.Vector3(),_rightShoulder=new THREE.Vector3(),_headDir=new THREE.Vector3();
+const _right=new THREE.Vector3();
+function rotateBoneWorld(bone,axis,angle){
+  const parent=bone.parent.getWorldQuaternion(_qa);
+  bone.quaternion.premultiply(_qc.copy(parent).invert().multiply(_qb.setFromAxisAngle(axis,angle)).multiply(parent));
+  bone.updateWorldMatrix(false,false);
+}
 function yawBone(bone,yaw){
   const parent=bone.parent.getWorldQuaternion(_qa);
   bone.quaternion.premultiply(_qc.copy(parent).invert().multiply(_qb.setFromAxisAngle(_up,yaw)).multiply(parent));
@@ -197,6 +203,9 @@ function locomotion(state){
 }
 function animationChoice(rig,state) {
   if(state.hp<=0)return'death';
+  if(state.action==='parried')return'stagger';
+  if(state.action==='parry')return'block';
+  if(state.action==='riposte')return'heavy';
   if(state.action==='light')return state.attackClip||'light';
   if(state.action==='bossAttack'||(rig.boss&&state.action==='recover'&&state.move))return BOSS_MOVES[state.move].clip;
   if(rig.boss&&['summon','echoWait','idle','recover'].includes(state.action)&&!state.moving)return'dual';
@@ -228,14 +237,23 @@ export function animateKnight(rig,state,dt,time) {
   else if(state.action==='swing')action.time=Math.min(duration-.001,.45+state.timer*1.45);
   else if(state.action==='recover')action.time=Math.min(duration-.001,1.073+state.timer*.55);
   else if(name==='roll')action.time=.43+Math.min(1,state.timer/MOTION.roll.duration)*1.64;
+  else if(state.action==='riposte')action.time=Math.min(duration-.001,state.timer/MOTION.riposte.duration*duration);
   else if(['light','light2','light3','heavy'].includes(name))action.time=Math.min(duration-.001,state.timer/attackMotion(state).duration*duration);
   else if(name==='heal')action.time=2.15+Math.min(1,state.timer/1.3)*2.35;
+  else if(state.action==='parried')action.time=Math.min(duration-.001,state.timer/.7*duration);
+  else if(state.action==='parry')action.time=.5;
   else if(name==='stagger')action.time=Math.min(duration-.001,state.timer/.48*duration);
   else {const gait=name.replace('block_','');const speed=gait==='walk'?Math.max(.6,state.moving/1.8):gait==='run'?Math.max(.8,state.moving/4.4):name.startsWith('block_')?.8:1;action.time=(rig.elapsed*speed)%duration;}
   // The combat clock selects the exact frame; the mixer only performs cross-fades.
   action.paused=true;rig.mixer.update(dt);
   rig.model.position.y=rig.baseY;
   rig.root.updateMatrixWorld(true);
+  if(state.action==='parry'&&rig.leftArm){
+    const swing=Math.sin(Math.PI*Math.min(1,state.timer/MOTION.parry.duration));
+    rotateBoneWorld(rig.leftArm,_up,swing*1.15);
+    rotateBoneWorld(rig.leftArm,_right.set(1,0,0).applyQuaternion(rig.root.quaternion),-swing*.55);
+    rig.root.updateMatrixWorld(true);
+  }
   if(rig.facingWeight>.001&&rig.spine&&rig.leftShoulder&&rig.rightShoulder&&rig.neck&&rig.head){
     // Torso: turn the spine until the shoulder line squares up with the facing.
     _leftShoulder.setFromMatrixPosition(rig.leftShoulder.matrixWorld);

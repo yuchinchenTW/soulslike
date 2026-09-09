@@ -14,6 +14,11 @@ let toastUntil = 0, bannerUntil = 0, hurtUntil = 0, helpReturn = 'menu';
 let hitStop = 0;
 const keys = new Set();
 let rightMouse = false, dragged = false;
+// A guard press released within this many ms is a parry tap. Latched on the
+// input event so a quick tap registers even when it falls between frames.
+let guardDownAt = 0, parryQueued = false;
+const guardDown = () => { guardDownAt = performance.now(); };
+const guardUp = () => { if (guardDownAt && performance.now() - guardDownAt < 200) parryQueued = true; guardDownAt = 0; };
 let lastTargetWheel = -Infinity;
 
 class Sound {
@@ -45,6 +50,8 @@ class Sound {
     if (type === 'hit') { this.noise(.14, .65); this.tone(130, .16, 'triangle', .5, 45); }
     if (type === 'hurt') { this.noise(.2, .6); this.tone(76, .4, 'sawtooth', .3, 30); }
     if (type === 'block') { this.tone(730, .3, 'triangle', .25, 200); this.noise(.08, .5); }
+    if (type === 'parry') { this.tone(1480, .35, 'triangle', .3, 420); this.tone(2200, .18, 'sine', .12, 900); this.noise(.06, .6); }
+    if (type === 'riposte') { this.noise(.2, .4); this.tone(110, .3, 'sawtooth', .25, 50); }
     if (['heal', 'rest', 'kill'].includes(type)) { this.tone(330, .6, 'sine', .18, 660); this.tone(495, .8, 'sine', .12, 990); }
     if (['bossAwake', 'rage', 'death'].includes(type)) { this.tone(55, 1.8, 'sawtooth', .16, 35); this.tone(83, 2, 'sine', .2, 55); }
     if (type === 'victory') for (const f of [196, 246.94, 293.66, 392]) this.tone(f, 3, 'sine', .13);
@@ -56,7 +63,7 @@ function banner(title, subtitle, seconds = 3.5) { $('banner').querySelector('h2'
 function requestMouse() {
   try { const result = canvas.requestPointerLock?.(); result?.catch?.(() => toast('可按住滑鼠拖曳或使用方向鍵旋轉視角')); } catch { toast('使用方向鍵旋轉視角'); }
 }
-function clearInput() { keys.clear(); rightMouse = false; dragged = false; lastTargetWheel = -Infinity; }
+function clearInput() { keys.clear(); rightMouse = false; dragged = false; lastTargetWheel = -Infinity; guardDownAt = 0; parryQueued = false; }
 function pause() {
   if (game.state !== 'playing') return;
   game.state = 'paused'; clearInput(); show('pause'); document.exitPointerLock?.();
@@ -122,7 +129,7 @@ function frame(now) {
     if (!game.target) world.yaw += (Number(keys.has('ArrowLeft')) - Number(keys.has('ArrowRight'))) * dt * 1.8;
     const d = direction();
     if (hitStop > 0) hitStop = Math.max(0, hitStop - dt);
-    else game.update(dt, { ...d, block: rightMouse || keys.has('KeyK'), sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') });
+    else { game.update(dt, { ...d, block: rightMouse || keys.has('KeyK'), parry: parryQueued, sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') }); parryQueued = false; }
   }
   handleEvents();
   world.update(game, dt, elapsed, game.state === 'menu');
@@ -145,6 +152,7 @@ try {
   document.addEventListener('keydown', e => {
     if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     if (e.repeat) return;
+    if (e.code === 'KeyK' && !keys.has('KeyK') && game.state === 'playing') guardDown();
     keys.add(e.code);
     if (e.code === 'Escape') { if (!$('help').classList.contains('hidden')) { show('help', false); if (helpReturn === 'playing') show('pause'); } else pause(); return; }
     if (e.code === 'KeyM') { sound.enabled = !sound.enabled; $('sound').textContent = `音效：${sound.enabled ? '開啟' : '關閉'}`; toast(`音效已${sound.enabled ? '開啟' : '關閉'}`); }
@@ -152,7 +160,7 @@ try {
     const actions = { Space: 'roll', KeyJ: 'light', KeyR: 'heavy', KeyQ: 'lock', KeyF: 'heal', KeyE: 'interact' };
     if (actions[e.code]) game.trigger(actions[e.code], direction());
   });
-  document.addEventListener('keyup', e => keys.delete(e.code));
+  document.addEventListener('keyup', e => { if (e.code === 'KeyK') guardUp(); keys.delete(e.code); });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   canvas.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
   canvas.addEventListener('mousedown', e => {
@@ -164,10 +172,10 @@ try {
     }
     if (game.state !== 'playing') return;
     if (e.button === 0) game.trigger('light');
-    if (e.button === 2) rightMouse = true;
+    if (e.button === 2) { rightMouse = true; guardDown(); }
     dragged = true;
   });
-  document.addEventListener('mouseup', e => { if (e.button === 2) rightMouse = false; dragged = false; });
+  document.addEventListener('mouseup', e => { if (e.button === 2) { rightMouse = false; guardUp(); } dragged = false; });
   document.addEventListener('mousemove', e => {
     if (game.state !== 'playing' || game.target || !(document.pointerLockElement === canvas || dragged)) return;
     world.yaw -= e.movementX * .003; world.pitch = Math.max(-.04, Math.min(.95, world.pitch + e.movementY * .0025));

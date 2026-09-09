@@ -229,15 +229,15 @@ export class World {
     }
   }
   addEffect(type, e) {
-    if (['hurt', 'hit', 'block', 'rage'].includes(type)) this.shake = type === 'hurt' ? .16 : .07;
+    if (['hurt', 'hit', 'block', 'rage', 'parry', 'riposte'].includes(type)) this.shake = type === 'hurt' ? .16 : type === 'parry' ? .11 : e?.critical ? .14 : .07;
     if (['summon','burst'].includes(type)) {
       const ring = new THREE.Mesh(new THREE.RingGeometry(.85,1,80),new THREE.MeshBasicMaterial({color:0x9d7afa,transparent:true,opacity:.7,side:THREE.DoubleSide,depthWrite:false}));
       ring.rotation.x=-Math.PI/2;ring.position.set(e.x,.04,e.z);ring.scale.setScalar(type==='burst'?3.6:1.2);this.scene.add(ring);
       this.effects.push({mesh:ring,life:.6,max:.6});
     }
-    if (['hit', 'block', 'heal', 'kill'].includes(type)) {
-      for (let i = 0; i < (type === 'kill' ? 20 : 11); i++) {
-        const mat = new THREE.MeshBasicMaterial({ color: type === 'heal' ? 0xffca72 : type === 'hit' ? 0xe7a074 : 0xf5de9e, transparent: true });
+    if (['hit', 'block', 'heal', 'kill', 'parry'].includes(type)) {
+      for (let i = 0; i < (type === 'kill' ? 20 : type === 'parry' ? 18 : 11); i++) {
+        const mat = new THREE.MeshBasicMaterial({ color: type === 'heal' ? 0xffca72 : type === 'hit' ? 0xe7a074 : type === 'parry' ? 0xe8f4ff : 0xf5de9e, transparent: true });
         const m = mesh(new THREE.OctahedronGeometry(.045), mat, this.scene, e.x + (random() - .5) * .5, .8 + random() * .8, e.z + (random() - .5) * .5); m.castShadow = false;
         this.effects.push({ mesh: m, life: .6, max: .6, velocity: new THREE.Vector3((random() - .5) * 4, 1 + random() * 3, (random() - .5) * 4) });
       }
